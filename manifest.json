@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "grunkan.runalyzer",
   "name": "Runalyzer",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "grunkan",
   "description": "Runalyzer shows your recent Strava running activities, weekly trends, and yearly totals in a bar popup.",
   "kinds": ["bar-widget"],
