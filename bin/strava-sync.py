@@ -165,6 +165,32 @@ def write_status(status_path, connected, error, auth_help_text, activities, upda
     atomic_write_json(status_path, record)
 
 
+def load_previous_state(status_path):
+    previous = load_previous_status(status_path) or {}
+    return {
+        "activities": previous.get("activities") or [],
+        "updatedAt": previous.get("updatedAt") or "",
+        "summary": previous.get("summary") or empty_summary(),
+        "summaryWeeks6": previous.get("summaryWeeks6") or empty_weekly_summary(),
+        "summaryYear": previous.get("summaryYear") or empty_weekly_summary(),
+    }
+
+
+def write_keep_previous(status_path, error, help_text, previous_state):
+    write_status(
+        status_path, True, error, help_text,
+        previous_state["activities"], previous_state["updatedAt"],
+        previous_state["summary"], previous_state["summaryWeeks6"], previous_state["summaryYear"],
+    )
+
+
+def write_auth_expired(status_path):
+    write_status(
+        status_path, False, "auth_expired",
+        "Your Strava connection has expired. Please reconnect.", [], "",
+    )
+
+
 def refresh_access_token(client_id, client_secret, refresh_token):
     body = urllib.parse.urlencode({
         "client_id": client_id,
@@ -175,6 +201,19 @@ def refresh_access_token(client_id, client_secret, refresh_token):
     request = urllib.request.Request(TOKEN_URL, data=body, method="POST")
     with urllib.request.urlopen(request, timeout=15) as response:
         return json.load(response)
+
+
+def refresh_or_expire(client_id, client_secret, refresh_token, auth, auth_path):
+    try:
+        tokens = refresh_access_token(client_id, client_secret, refresh_token)
+    except urllib.error.HTTPError:
+        return None
+    access_token = tokens.get("access_token")
+    auth["accessToken"] = access_token
+    auth["refreshToken"] = tokens.get("refresh_token")
+    auth["expiresAt"] = tokens.get("expires_at")
+    atomic_write_json(auth_path, auth, mode=0o600)
+    return access_token
 
 
 MAX_ACTIVITY_PAGES = 10
@@ -226,12 +265,7 @@ def main():
         write_status(status_path, False, "not_connected", not_connected_text, [], "")
         return 0
 
-    previous = load_previous_status(status_path) or {}
-    previous_activities = previous.get("activities") or []
-    previous_updated_at = previous.get("updatedAt") or ""
-    previous_summary = previous.get("summary") or empty_summary()
-    previous_summary_weeks = previous.get("summaryWeeks6") or empty_weekly_summary()
-    previous_summary_year = previous.get("summaryYear") or empty_weekly_summary()
+    previous_state = load_previous_state(status_path)
 
     try:
         client_id = auth["clientId"]
@@ -241,19 +275,10 @@ def main():
         expires_at = auth.get("expiresAt") or 0
 
         if not access_token or expires_at - time.time() < TOKEN_EXPIRY_MARGIN_SEC:
-            try:
-                tokens = refresh_access_token(client_id, client_secret, refresh_token)
-            except urllib.error.HTTPError:
-                write_status(
-                    status_path, False, "auth_expired",
-                    "Your Strava connection has expired. Please reconnect.", [], "",
-                )
+            access_token = refresh_or_expire(client_id, client_secret, refresh_token, auth, auth_path)
+            if access_token is None:
+                write_auth_expired(status_path)
                 return 0
-            access_token = tokens.get("access_token")
-            auth["accessToken"] = access_token
-            auth["refreshToken"] = tokens.get("refresh_token")
-            auth["expiresAt"] = tokens.get("expires_at")
-            atomic_write_json(auth_path, auth, mode=0o600)
 
         after_epoch = fetch_window_start_epoch()
 
@@ -261,49 +286,30 @@ def main():
             activities = fetch_activities_since(access_token, after_epoch)
         except urllib.error.HTTPError as err:
             if err.code == 401:
-                try:
-                    tokens = refresh_access_token(client_id, client_secret, refresh_token)
-                except urllib.error.HTTPError:
-                    write_status(
-                        status_path, False, "auth_expired",
-                        "Your Strava connection has expired. Please reconnect.", [], "",
-                    )
+                access_token = refresh_or_expire(client_id, client_secret, refresh_token, auth, auth_path)
+                if access_token is None:
+                    write_auth_expired(status_path)
                     return 0
-                access_token = tokens.get("access_token")
-                auth["accessToken"] = access_token
-                auth["refreshToken"] = tokens.get("refresh_token")
-                auth["expiresAt"] = tokens.get("expires_at")
-                atomic_write_json(auth_path, auth, mode=0o600)
                 try:
                     activities = fetch_activities_since(access_token, after_epoch)
                 except urllib.error.HTTPError:
-                    write_status(
-                        status_path, False, "auth_expired",
-                        "Your Strava connection has expired. Please reconnect.", [], "",
-                    )
+                    write_auth_expired(status_path)
                     return 0
             elif err.code == 429:
-                write_status(
-                    status_path, True, "rate_limited",
+                write_keep_previous(
+                    status_path, "rate_limited",
                     "Strava has rate-limited requests. Retrying automatically.",
-                    previous_activities, previous_updated_at,
-                    previous_summary, previous_summary_weeks, previous_summary_year,
+                    previous_state,
                 )
                 return 0
             else:
-                write_status(
-                    status_path, True, "fetch_failed",
-                    "Couldn't fetch activities right now.",
-                    previous_activities, previous_updated_at,
-                    previous_summary, previous_summary_weeks, previous_summary_year,
+                write_keep_previous(
+                    status_path, "fetch_failed", "Couldn't fetch activities right now.", previous_state,
                 )
                 return 0
         except urllib.error.URLError:
-            write_status(
-                status_path, True, "fetch_failed",
-                "Couldn't fetch activities right now.",
-                previous_activities, previous_updated_at,
-                previous_summary, previous_summary_weeks, previous_summary_year,
+            write_keep_previous(
+                status_path, "fetch_failed", "Couldn't fetch activities right now.", previous_state,
             )
             return 0
 
@@ -322,11 +328,8 @@ def main():
         )
         return 0
     except Exception as exc:
-        write_status(
-            status_path, True, "fetch_failed",
-            "Couldn't fetch activities right now.",
-            previous_activities, previous_updated_at,
-            previous_summary, previous_summary_weeks, previous_summary_year,
+        write_keep_previous(
+            status_path, "fetch_failed", "Couldn't fetch activities right now.", previous_state,
         )
         print("strava-sync error: %s" % exc, file=sys.stderr)
         return 0

@@ -27,6 +27,14 @@ Item {
   readonly property color mainColor: bar ? bar.foreground : "white"
   readonly property color mutedColor: bar ? Qt.rgba(bar.foreground.r, bar.foreground.g, bar.foreground.b, 0.55) : "#999999"
 
+  readonly property bool panelBaseVisible: !root.showSettingsPanel
+  readonly property bool connectedPanel: root.syncStatus.connected === true && root.panelBaseVisible
+  readonly property bool disconnectedPanel: root.syncStatus.connected !== true && root.panelBaseVisible
+  readonly property bool show7dSection: root.connectedPanel && root.setting("show7d", true)
+  readonly property bool show6wSection: root.connectedPanel && root.setting("show6w", true)
+  readonly property bool showYearSection: root.connectedPanel && root.setting("showYear", true)
+  readonly property bool showRecent5Section: root.connectedPanel && root.setting("showRecent5", true)
+
   function pad(n) { return n < 10 ? "0" + n : "" + n }
 
   function formatDuration(sec) {
@@ -452,7 +460,7 @@ Item {
         Column {
           width: parent.width
           spacing: 8
-          visible: root.syncStatus.connected !== true && !root.showSettingsPanel
+          visible: root.disconnectedPanel
 
           Text {
             width: parent.width
@@ -573,13 +581,13 @@ Item {
           color: root.mutedColor
           font.pixelSize: 12
           font.bold: true
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("show7d", true)
+          visible: root.show7dSection
         }
 
         Row {
           width: parent.width
           spacing: 8
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("show7d", true)
+          visible: root.show7dSection
 
           Column {
             width: (parent.width - 24) / 4
@@ -615,7 +623,7 @@ Item {
           height: 1
           color: root.mutedColor
           opacity: 0.4
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("show6w", true)
+          visible: root.show6wSection
         }
 
         Text {
@@ -623,13 +631,13 @@ Item {
           color: root.mutedColor
           font.pixelSize: 12
           font.bold: true
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("show6w", true)
+          visible: root.show6wSection
         }
 
         Row {
           width: parent.width
           spacing: 8
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("show6w", true)
+          visible: root.show6wSection
 
           Column {
             width: (parent.width - 16) / 3
@@ -658,7 +666,7 @@ Item {
           height: 1
           color: root.mutedColor
           opacity: 0.4
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("showYear", true)
+          visible: root.showYearSection
         }
 
         Text {
@@ -666,13 +674,13 @@ Item {
           color: root.mutedColor
           font.pixelSize: 12
           font.bold: true
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("showYear", true)
+          visible: root.showYearSection
         }
 
         Row {
           width: parent.width
           spacing: 8
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("showYear", true)
+          visible: root.showYearSection
 
           Column {
             width: (parent.width - 16) / 3
@@ -701,11 +709,11 @@ Item {
           height: 1
           color: root.mutedColor
           opacity: 0.4
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel
+          visible: root.connectedPanel
         }
 
         Text {
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && !!root.syncStatus.error
+          visible: root.connectedPanel && !!root.syncStatus.error
           width: parent.width
           wrapMode: Text.Wrap
           text: root.syncStatus.authHelpText
@@ -718,13 +726,13 @@ Item {
           color: root.mutedColor
           font.pixelSize: 12
           font.bold: true
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("showRecent5", true)
+          visible: root.showRecent5Section
         }
 
         Column {
           width: parent.width
           spacing: 6
-          visible: root.syncStatus.connected === true && !root.showSettingsPanel && root.setting("showRecent5", true)
+          visible: root.showRecent5Section
 
           Repeater {
             model: root.activities
@@ -798,7 +806,7 @@ Item {
         Row {
           anchors.horizontalCenter: parent.horizontalCenter
           spacing: 8
-          visible: !root.showSettingsPanel
+          visible: root.panelBaseVisible
 
           Rectangle {
             id: stravaButton
