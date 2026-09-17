@@ -10,9 +10,11 @@ it is not a persistent webhook receiver.
 """
 
 import argparse
+import hmac
 import http.server
 import json
 import os
+import secrets
 import sys
 import tempfile
 import time
@@ -38,13 +40,14 @@ def parse_args():
     return parser.parse_args()
 
 
-def build_authorize_url(client_id, redirect_uri, scope):
+def build_authorize_url(client_id, redirect_uri, scope, state):
     query = urllib.parse.urlencode({
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "approval_prompt": "auto",
         "scope": scope,
+        "state": state,
     })
     return AUTHORIZE_URL + "?" + query
 
@@ -54,17 +57,27 @@ class _CallbackResult:
     error = None
 
 
-def _make_handler(result):
+def _make_handler(result, expected_state):
     class CallbackHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             parsed = urllib.parse.urlsplit(self.path)
             params = urllib.parse.parse_qs(parsed.query)
-            if "code" in params:
-                result.code = params["code"][0]
-                body = "<html><body>Done! You can close this tab now.</body></html>"
+            state = (params.get("state") or [""])[0]
+
+            # Ignore any request that doesn't carry our exact state token -
+            # this is a loopback HTTP listener on a fixed port, so anything
+            # else running locally (e.g. a browser tab) could otherwise race
+            # the real Strava redirect and get its own code accepted instead.
+            if hmac.compare_digest(state, expected_state):
+                if "code" in params:
+                    result.code = params["code"][0]
+                    body = "<html><body>Done! You can close this tab now.</body></html>"
+                else:
+                    result.error = (params.get("error") or ["unknown_error"])[0]
+                    body = "<html><body>Connection failed. You can close this tab now.</body></html>"
             else:
-                result.error = (params.get("error") or ["unknown_error"])[0]
                 body = "<html><body>Connection failed. You can close this tab now.</body></html>"
+
             encoded = body.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -78,12 +91,17 @@ def _make_handler(result):
     return CallbackHandler
 
 
-def run_oauth_listener(port, timeout):
+def run_oauth_listener(port, timeout, expected_state):
     result = _CallbackResult()
-    handler = _make_handler(result)
+    handler = _make_handler(result, expected_state)
     httpd = http.server.HTTPServer(("127.0.0.1", port), handler)
-    httpd.timeout = timeout
-    httpd.handle_request()
+    deadline = time.time() + timeout
+    while result.code is None and result.error is None:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        httpd.timeout = remaining
+        httpd.handle_request()
     httpd.server_close()
     if result.code is None and result.error is None:
         return None, "timeout"
@@ -134,11 +152,12 @@ def main():
         print("STRAVA_CLIENT_SECRET is missing from the environment", file=sys.stderr)
         return 1
 
+    state = secrets.token_urlsafe(24)
     redirect_uri = "http://localhost:%d/strava-callback" % args.port
-    authorize_url = build_authorize_url(args.client_id, redirect_uri, args.scope)
+    authorize_url = build_authorize_url(args.client_id, redirect_uri, args.scope, state)
     open_browser(authorize_url)
 
-    code, error = run_oauth_listener(args.port, args.timeout)
+    code, error = run_oauth_listener(args.port, args.timeout, state)
     if error == "timeout":
         print("No login within the time limit", file=sys.stderr)
         return 1
