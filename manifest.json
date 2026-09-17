@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "grunkan.runalyzer",
+  "name": "Runalyzer",
+  "version": "0.3.0",
+  "author": "grunkan",
+  "description": "Runalyzer shows your recent Strava running activities, weekly trends, and yearly totals in a bar popup.",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Widget.qml" },
+  "barWidget": {
+    "displayName": "Runalyzer",
+    "category": "Custom",
+    "defaultSection": "right",
+    "defaults": { "refreshMinutes": 15 },
+    "schema": [
+      {
+        "key": "refreshMinutes",
+        "type": "number",
+        "label": "Refresh interval (minutes)",
+        "default": 15,
+        "min": 5,
+        "max": 120
+      }
+    ]
+  }
+}
