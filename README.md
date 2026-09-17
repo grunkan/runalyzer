@@ -4,7 +4,7 @@ A bar widget for [Omarchy](https://omarchy.org) that shows your recent Strava
 running activities, weekly trends, and yearly totals — right in your status
 bar.
 
-[Screenshot/GIF here — add before publishing]
+![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
 ## Features
 
