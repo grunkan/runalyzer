@@ -150,7 +150,7 @@ Item {
     }
     root.connecting = true
     root.connectMessage = "Opening browser for Strava login…"
-    connectProcess.environment = ({ "STRAVA_CLIENT_SECRET": clientSecret })
+    connectProcess.pendingSecret = clientSecret
     connectProcess.command = ["python3", root.pluginDir + "bin/strava-connect.py", "--client-id", clientId]
     connectProcess.running = true
   }
@@ -159,9 +159,14 @@ Item {
     id: connectProcess
     running: false
     command: []
-    environment: ({})
+    stdinEnabled: true
+    property string pendingSecret: ""
     stdout: StdioCollector { id: connectStdout; waitForEnd: true }
     stderr: StdioCollector { id: connectStderr; waitForEnd: true }
+    onStarted: {
+      write(pendingSecret + "\n")
+      pendingSecret = ""
+    }
     onExited: function(exitCode) {
       root.connecting = false
       if (exitCode === 0) {
@@ -744,6 +749,7 @@ Item {
                 Text {
                   width: parent.width
                   wrapMode: Text.Wrap
+                  textFormat: Text.PlainText
                   color: root.mainColor
                   font.pixelSize: 12
                   font.bold: true

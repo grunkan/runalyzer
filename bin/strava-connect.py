@@ -145,11 +145,25 @@ def open_browser(url):
         pass
 
 
+def read_client_secret():
+    # Prefer stdin over an environment variable - env vars are readable by
+    # any other process running as the same user (e.g. via /proc/PID/environ)
+    # for the lifetime of this process, while a pipe write is a one-shot
+    # transfer. STRAVA_CLIENT_SECRET is kept as a fallback for manual/dev use.
+    env_secret = os.environ.get("STRAVA_CLIENT_SECRET", "").strip()
+    if env_secret:
+        return env_secret
+    try:
+        return sys.stdin.readline().strip()
+    except Exception:
+        return ""
+
+
 def main():
     args = parse_args()
-    client_secret = os.environ.get("STRAVA_CLIENT_SECRET", "").strip()
+    client_secret = read_client_secret()
     if not client_secret:
-        print("STRAVA_CLIENT_SECRET is missing from the environment", file=sys.stderr)
+        print("No Strava client secret was provided on stdin", file=sys.stderr)
         return 1
 
     state = secrets.token_urlsafe(24)
