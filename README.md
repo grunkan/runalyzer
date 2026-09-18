@@ -6,6 +6,8 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
+**Latest release:** [v0.3.2](https://github.com/grunkan/runalyzer/releases/tag/v0.3.2) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+
 ## Features
 
 - Your last 5 runs — name, date, time, distance, duration, pace, elevation
@@ -25,13 +27,13 @@ bar.
 
 ## Installation
 
-Once published, via the Omarchy plugin CLI:
+Via the Omarchy plugin CLI:
 
 ```sh
 omarchy plugin add https://github.com/grunkan/runalyzer.git --enable
 ```
 
-Or manually, right now:
+Or manually:
 
 ```sh
 git clone https://github.com/grunkan/runalyzer.git ~/.config/omarchy/plugins/grunkan.runalyzer
