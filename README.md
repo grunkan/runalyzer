@@ -49,6 +49,9 @@ create a small (free) API application for your own account:
 1. Go to [strava.com/settings/api](https://www.strava.com/settings/api) and
    create an application.
    - Set **Authorization Callback Domain** to `localhost`.
+   - Note: the application requires a **Website** and an **Application
+     Icon**. Use `https://github.com/grunkan/runalyzer` as the website, and
+     upload [`assets/icon.png`](assets/icon.png) from this repo as the icon.
 2. Copy the **Client ID** and **Client Secret** it gives you.
 3. Click the Runalyzer icon in your bar, paste the Client ID and Client
    Secret into the fields shown, and click **Connect**.
