@@ -201,10 +201,27 @@ Item {
   MouseArea {
     anchors.fill: parent
     cursorShape: Qt.PointingHandCursor
-    onClicked: root.popupOpen = !root.popupOpen
+    onClicked: root.triggerPress()
   }
 
   function close() { root.popupOpen = false }
+
+  function triggerPress() {
+    if (root.bar) root.bar.hideTooltip(root)
+    root.popupOpen = !root.popupOpen
+  }
+
+  property var registeredBar: null
+
+  function syncClickRegistration() {
+    if (registeredBar && registeredBar.unregisterClickTarget) registeredBar.unregisterClickTarget(root)
+    registeredBar = root.bar
+    if (registeredBar && registeredBar.registerClickTarget) registeredBar.registerClickTarget(root)
+  }
+
+  onBarChanged: syncClickRegistration()
+  Component.onCompleted: syncClickRegistration()
+  Component.onDestruction: if (registeredBar && registeredBar.unregisterClickTarget) registeredBar.unregisterClickTarget(root)
 
   KeyboardPanel {
     id: popup
@@ -212,7 +229,7 @@ Item {
     owner: root
     bar: root.bar
     open: root.popupOpen
-    focusTarget: clientIdField
+    focusTarget: keyCatcher
     contentWidth: popup.fittedContentWidth(360)
     contentHeight: popup.fittedContentHeight(contentColumn.implicitHeight)
 
