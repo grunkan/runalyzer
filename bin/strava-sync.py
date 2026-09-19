@@ -91,23 +91,6 @@ def within_last_days(start_date_local, days):
     return start.date() >= datetime.now().date() - timedelta(days=days - 1)
 
 
-def week_start(d):
-    return d - timedelta(days=d.weekday())
-
-
-def within_last_calendar_weeks(runs, weeks):
-    # Same "current period + (N-1) previous complete periods" convention as
-    # within_last_days, just week-granular: this ISO week (Mon-Sun) plus the
-    # (weeks - 1) preceding complete weeks.
-    cutoff = week_start(datetime.now().date()) - timedelta(weeks=weeks - 1)
-    result = []
-    for a in runs:
-        start = parse_start(a.get("start_date_local"))
-        if start and start.date() >= cutoff:
-            result.append(a)
-    return result
-
-
 def within_current_year(runs):
     year = datetime.now().year
     result = []
@@ -144,8 +127,8 @@ def elapsed_weeks_this_year():
 def fetch_window_start_epoch():
     today = datetime.now().date()
     year_start = date(today.year, 1, 1)
-    six_weeks_start = week_start(today) - timedelta(weeks=5)
-    window_start = min(year_start, six_weeks_start)
+    six_week_start = today - timedelta(days=41)
+    window_start = min(year_start, six_week_start)
     return int(datetime.combine(window_start, datetime.min.time()).timestamp())
 
 
@@ -317,7 +300,7 @@ def main():
         runs.sort(key=lambda a: a.get("start_date_local") or "", reverse=True)
         mapped = [map_activity(a) for a in runs[:5]]
         week_runs = [a for a in runs if within_last_days(a.get("start_date_local"), 7)]
-        six_week_runs = within_last_calendar_weeks(runs, 6)
+        six_week_runs = [a for a in runs if within_last_days(a.get("start_date_local"), 42)]
         year_runs = within_current_year(runs)
 
         write_status(
