@@ -179,7 +179,7 @@ Item {
   property int refreshMinutes: 15
 
   function syncSettingValues() {
-    avgWeeks = settingInt("avgWeeks", 6, 2, 10)
+    avgWeeks = settingInt("avgWeeks", 6, 2, 12)
     recentCount = settingInt("recentCount", 5, 3, 10)
     refreshMinutes = settingInt("refreshMinutes", 15, 5, 60)
   }
@@ -556,7 +556,7 @@ Item {
             NumberField {
               label: "Weeks in the trend (" + from + "–" + to + ")"
               from: 2
-              to: 10
+              to: 12
               value: root.avgWeeks
               foreground: root.mainColor
               accent: root.mainColor

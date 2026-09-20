@@ -66,9 +66,11 @@ def load_previous_status(path):
         return None
 
 
-# Widest window the widget can ask for: 10 weeks of trend plus an equally
-# long preceding period to compare it against.
-LOOKBACK_DAYS = 140
+# Must cover the widest trend the widget offers plus an equally long
+# preceding period to compare it against. Keep in sync with the upper bound
+# of avgWeeks in Widget.qml.
+MAX_TREND_WEEKS = 12
+LOOKBACK_DAYS = MAX_TREND_WEEKS * 7 * 2
 
 
 def fetch_window_start_epoch():

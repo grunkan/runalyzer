@@ -6,7 +6,7 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
-**Latest release:** [v0.4.1](https://github.com/grunkan/runalyzer/releases/tag/v0.4.1) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v0.4.2](https://github.com/grunkan/runalyzer/releases/tag/v0.4.2) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
@@ -14,7 +14,7 @@ bar.
   gain, and average heart rate. Click a run to open it on Strava; hover for
   a "View on Strava" tooltip.
 - **Last 7 days** summary: runs, km, time, elevation gain.
-- **Weekly trend** over 2–10 weeks: runs, km, average km/week, a bar chart of
+- **Weekly trend** over 2–12 weeks: runs, km, average km/week, a bar chart of
   kilometres per week, and how the period compares to the one before it.
 - **This year** totals: runs, km, average km/week.
 - Your current streak of consecutive weeks with at least one run.
@@ -74,7 +74,7 @@ Click the gear icon in the popup to:
 
 - Toggle which of the four sections (Last 7 days / Weekly trend / This year /
   Recent activities) are shown.
-- Set how many weeks the trend covers (2–10, default 6).
+- Set how many weeks the trend covers (2–12, default 6).
 - Set how many activities the list shows (3–10, default 5).
 - Set the auto-refresh interval in minutes (5–60, default 15).
 
