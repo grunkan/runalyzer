@@ -6,7 +6,7 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
-**Latest release:** [v0.4.0](https://github.com/grunkan/runalyzer/releases/tag/v0.4.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v0.4.1](https://github.com/grunkan/runalyzer/releases/tag/v0.4.1) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
@@ -76,7 +76,7 @@ Click the gear icon in the popup to:
   Recent activities) are shown.
 - Set how many weeks the trend covers (2–10, default 6).
 - Set how many activities the list shows (3–10, default 5).
-- Set the auto-refresh interval in minutes (5–120, default 15).
+- Set the auto-refresh interval in minutes (5–60, default 15).
 
 Settings are stored per widget in `~/.config/omarchy/shell.json` and survive
 reinstalling the plugin.

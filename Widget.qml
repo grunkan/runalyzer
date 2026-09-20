@@ -181,7 +181,7 @@ Item {
   function syncSettingValues() {
     avgWeeks = settingInt("avgWeeks", 6, 2, 10)
     recentCount = settingInt("recentCount", 5, 3, 10)
-    refreshMinutes = settingInt("refreshMinutes", 15, 5, 120)
+    refreshMinutes = settingInt("refreshMinutes", 15, 5, 60)
   }
 
   onSettingsChanged: syncSettingValues()
@@ -554,7 +554,7 @@ Item {
             }
 
             NumberField {
-              label: "Weeks in the trend"
+              label: "Weeks in the trend (" + from + "–" + to + ")"
               from: 2
               to: 10
               value: root.avgWeeks
@@ -568,7 +568,7 @@ Item {
             }
 
             NumberField {
-              label: "Activities in the list"
+              label: "Activities in the list (" + from + "–" + to + ")"
               from: 3
               to: 10
               value: root.recentCount
@@ -582,9 +582,9 @@ Item {
             }
 
             NumberField {
-              label: "Refresh interval (minutes)"
+              label: "Refresh interval (" + from + "–" + to + " min)"
               from: 5
-              to: 120
+              to: 60
               stepSize: 5
               value: root.refreshMinutes
               foreground: root.mainColor

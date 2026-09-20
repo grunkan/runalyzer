@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "grunkan.runalyzer",
   "name": "Runalyzer",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": "grunkan",
   "description": "Runalyzer shows your recent Strava running activities, weekly trends, and yearly totals in a bar popup.",
   "kinds": ["bar-widget"],
@@ -24,7 +24,7 @@
       {
         "key": "avgWeeks",
         "type": "number",
-        "label": "Weeks in the trend",
+        "label": "Weeks in the trend (2-10)",
         "default": 6,
         "min": 2,
         "max": 10
@@ -32,7 +32,7 @@
       {
         "key": "recentCount",
         "type": "number",
-        "label": "Activities in the list",
+        "label": "Activities in the list (3-10)",
         "default": 5,
         "min": 3,
         "max": 10
@@ -40,10 +40,10 @@
       {
         "key": "refreshMinutes",
         "type": "number",
-        "label": "Refresh interval (minutes)",
+        "label": "Refresh interval (5-60 min)",
         "default": 15,
         "min": 5,
-        "max": 120
+        "max": 60
       },
       { "key": "show7d", "type": "boolean", "label": "Show last 7 days", "default": true },
       { "key": "show6w", "type": "boolean", "label": "Show weekly trend", "default": true },
