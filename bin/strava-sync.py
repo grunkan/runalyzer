@@ -3,8 +3,10 @@
 
 Reads credentials from auth.json, refreshes the access token when needed
 (persisting Strava's rotated refresh token), fetches recent activities,
-filters to runs, and writes the last 5 to status.json. Always writes
-valid JSON, even on failure, so the widget can degrade gracefully.
+filters to runs, and writes them all to status.json. Summaries and time
+windows are computed by the widget, which owns the user's settings, so
+changing them needs no re-sync. Always writes valid JSON, even on
+failure, so the widget can degrade gracefully.
 """
 
 import json
@@ -64,76 +66,20 @@ def load_previous_status(path):
         return None
 
 
-def empty_summary():
-    return {"count": 0, "distanceKm": 0, "durationSec": 0, "elevationM": 0}
-
-
-def empty_weekly_summary():
-    return {"count": 0, "distanceKm": 0, "avgKmPerWeek": 0}
-
-
-def parse_start(start_date_local):
-    if not start_date_local:
-        return None
-    try:
-        return datetime.strptime(start_date_local[:19], "%Y-%m-%dT%H:%M:%S")
-    except ValueError:
-        return None
-
-
-def within_last_days(start_date_local, days):
-    # Calendar-day window: today plus the (days - 1) preceding calendar
-    # days, matching how Strava/Garmin show "last 7 days" (e.g. today the
-    # 16th covers the 10th-16th) rather than a rolling 24*days-hour window.
-    start = parse_start(start_date_local)
-    if not start:
-        return False
-    return start.date() >= datetime.now().date() - timedelta(days=days - 1)
-
-
-def within_current_year(runs):
-    year = datetime.now().year
-    result = []
-    for a in runs:
-        start = parse_start(a.get("start_date_local"))
-        if start and start.year == year:
-            result.append(a)
-    return result
-
-
-def summarize(runs):
-    return {
-        "count": len(runs),
-        "distanceKm": sum((a.get("distance") or 0) for a in runs) / 1000.0,
-        "durationSec": sum((a.get("moving_time") or 0) for a in runs),
-        "elevationM": round(sum((a.get("total_elevation_gain") or 0) for a in runs)),
-    }
-
-
-def summarize_avg_per_week(runs, weeks_divisor):
-    distance_km = sum((a.get("distance") or 0) for a in runs) / 1000.0
-    weeks_divisor = max(1, weeks_divisor)
-    return {
-        "count": len(runs),
-        "distanceKm": distance_km,
-        "avgKmPerWeek": distance_km / weeks_divisor,
-    }
-
-
-def elapsed_weeks_this_year():
-    return max(1, datetime.now().date().isocalendar()[1])
+# Widest window the widget can ask for: 10 weeks of trend plus an equally
+# long preceding period to compare it against.
+LOOKBACK_DAYS = 140
 
 
 def fetch_window_start_epoch():
     today = datetime.now().date()
     year_start = date(today.year, 1, 1)
-    six_week_start = today - timedelta(days=41)
-    window_start = min(year_start, six_week_start)
+    lookback_start = today - timedelta(days=LOOKBACK_DAYS - 1)
+    window_start = min(year_start, lookback_start)
     return int(datetime.combine(window_start, datetime.min.time()).timestamp())
 
 
-def write_status(status_path, connected, error, auth_help_text, activities, updated_at,
-                  summary=None, summary_weeks=None, summary_year=None):
+def write_status(status_path, connected, error, auth_help_text, activities, updated_at):
     record = {
         "connected": connected,
         "updatedAt": updated_at,
@@ -141,9 +87,6 @@ def write_status(status_path, connected, error, auth_help_text, activities, upda
         "error": error,
         "authHelpText": auth_help_text,
         "activities": activities,
-        "summary": summary if summary is not None else empty_summary(),
-        "summaryWeeks6": summary_weeks if summary_weeks is not None else empty_weekly_summary(),
-        "summaryYear": summary_year if summary_year is not None else empty_weekly_summary(),
     }
     atomic_write_json(status_path, record)
 
@@ -153,9 +96,6 @@ def load_previous_state(status_path):
     return {
         "activities": previous.get("activities") or [],
         "updatedAt": previous.get("updatedAt") or "",
-        "summary": previous.get("summary") or empty_summary(),
-        "summaryWeeks6": previous.get("summaryWeeks6") or empty_weekly_summary(),
-        "summaryYear": previous.get("summaryYear") or empty_weekly_summary(),
     }
 
 
@@ -163,7 +103,6 @@ def write_keep_previous(status_path, error, help_text, previous_state):
     write_status(
         status_path, True, error, help_text,
         previous_state["activities"], previous_state["updatedAt"],
-        previous_state["summary"], previous_state["summaryWeeks6"], previous_state["summaryYear"],
     )
 
 
@@ -298,17 +237,8 @@ def main():
 
         runs = [a for a in activities if a.get("type") == "Run"]
         runs.sort(key=lambda a: a.get("start_date_local") or "", reverse=True)
-        mapped = [map_activity(a) for a in runs[:5]]
-        week_runs = [a for a in runs if within_last_days(a.get("start_date_local"), 7)]
-        six_week_runs = [a for a in runs if within_last_days(a.get("start_date_local"), 42)]
-        year_runs = within_current_year(runs)
 
-        write_status(
-            status_path, True, None, "", mapped, now_iso(),
-            summarize(week_runs),
-            summarize_avg_per_week(six_week_runs, 6),
-            summarize_avg_per_week(year_runs, elapsed_weeks_this_year()),
-        )
+        write_status(status_path, True, None, "", [map_activity(a) for a in runs], now_iso())
         return 0
     except Exception as exc:
         write_keep_previous(

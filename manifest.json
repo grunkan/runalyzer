@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "grunkan.runalyzer",
   "name": "Runalyzer",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "author": "grunkan",
   "description": "Runalyzer shows your recent Strava running activities, weekly trends, and yearly totals in a bar popup.",
   "kinds": ["bar-widget"],
@@ -11,8 +11,32 @@
     "displayName": "Runalyzer",
     "category": "Custom",
     "defaultSection": "right",
-    "defaults": { "refreshMinutes": 15 },
+    "defaults": {
+      "refreshMinutes": 15,
+      "avgWeeks": 6,
+      "recentCount": 5,
+      "show7d": true,
+      "show6w": true,
+      "showYear": true,
+      "showRecent5": true
+    },
     "schema": [
+      {
+        "key": "avgWeeks",
+        "type": "number",
+        "label": "Weeks in the trend",
+        "default": 6,
+        "min": 2,
+        "max": 10
+      },
+      {
+        "key": "recentCount",
+        "type": "number",
+        "label": "Activities in the list",
+        "default": 5,
+        "min": 3,
+        "max": 10
+      },
       {
         "key": "refreshMinutes",
         "type": "number",
@@ -20,7 +44,11 @@
         "default": 15,
         "min": 5,
         "max": 120
-      }
+      },
+      { "key": "show7d", "type": "boolean", "label": "Show last 7 days", "default": true },
+      { "key": "show6w", "type": "boolean", "label": "Show weekly trend", "default": true },
+      { "key": "showYear", "type": "boolean", "label": "Show this year", "default": true },
+      { "key": "showRecent5", "type": "boolean", "label": "Show recent activities", "default": true }
     ]
   }
 }

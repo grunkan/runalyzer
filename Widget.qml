@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Ui
@@ -18,9 +19,74 @@ Item {
 
   property var syncStatus: emptyStatus()
   readonly property var activities: syncStatus.activities || []
-  readonly property var summary: syncStatus.summary || { count: 0, distanceKm: 0, durationSec: 0, elevationM: 0 }
-  readonly property var summaryWeeks: syncStatus.summaryWeeks6 || { count: 0, distanceKm: 0, avgKmPerWeek: 0 }
-  readonly property var summaryYear: syncStatus.summaryYear || { count: 0, distanceKm: 0, avgKmPerWeek: 0 }
+  readonly property var recentActivities: activities.slice(0, recentCount)
+
+  // The sync script writes every run it fetched and computes nothing, so all
+  // windows below are derived here, where the user's settings live. Changing a
+  // setting therefore updates the numbers without waiting for a re-sync.
+  readonly property var summary: {
+    var runs = runsBetween(isoDaysAgo(6), isoDaysAgo(0))
+    var durationSec = 0
+    var elevationM = 0
+    for (var i = 0; i < runs.length; i++) {
+      durationSec += runs[i].durationSec || 0
+      elevationM += runs[i].elevationM || 0
+    }
+    return { count: runs.length, distanceKm: totalKm(runs), durationSec: durationSec, elevationM: elevationM }
+  }
+
+  readonly property var summaryWeeks: {
+    var runs = runsBetween(isoDaysAgo(avgWeeks * 7 - 1), isoDaysAgo(0))
+    var km = totalKm(runs)
+    return { count: runs.length, distanceKm: km, avgKmPerWeek: km / Math.max(1, avgWeeks) }
+  }
+
+  readonly property real previousWeeksKm: totalKm(runsBetween(isoDaysAgo(avgWeeks * 14 - 1), isoDaysAgo(avgWeeks * 7)))
+  readonly property bool hasTrendComparison: previousWeeksKm > 0
+  readonly property real trendChangePercent: hasTrendComparison
+    ? (summaryWeeks.distanceKm - previousWeeksKm) / previousWeeksKm * 100 : 0
+
+  readonly property var summaryYear: {
+    var prefix = new Date().getFullYear() + "-"
+    var runs = []
+    for (var i = 0; i < activities.length; i++)
+      if (String(activities[i].date || "").indexOf(prefix) === 0) runs.push(activities[i])
+    var km = totalKm(runs)
+    return { count: runs.length, distanceKm: km, avgKmPerWeek: km / elapsedWeeksThisYear() }
+  }
+
+  // Kilometres per rolling 7-day block, index 0 being the block ending today.
+  readonly property var weeklyKm: {
+    var buckets = []
+    for (var w = 0; w < avgWeeks; w++)
+      buckets.push(totalKm(runsBetween(isoDaysAgo(w * 7 + 6), isoDaysAgo(w * 7))))
+    return buckets
+  }
+
+  readonly property real weeklyKmMax: {
+    var max = 0
+    for (var i = 0; i < weeklyKm.length; i++) max = Math.max(max, weeklyKm[i])
+    return max
+  }
+
+  readonly property int streakWeeks: {
+    var today = isoDaysAgo(0)
+    var active = ({})
+    for (var i = 0; i < activities.length; i++) {
+      var day = String(activities[i].date || "")
+      if (day.length !== 10 || day > today) continue
+      active[Math.floor(daysBetween(day, today) / 7)] = true
+    }
+    // An empty current block shouldn't zero out a streak that is still alive;
+    // start from last week in that case.
+    var week = active[0] ? 0 : 1
+    var count = 0
+    while (active[week]) {
+      count++
+      week++
+    }
+    return count
+  }
 
   property bool showSettingsPanel: false
 
@@ -31,11 +97,51 @@ Item {
   readonly property bool connectedPanel: root.syncStatus.connected === true && root.panelBaseVisible
   readonly property bool disconnectedPanel: root.syncStatus.connected !== true && root.panelBaseVisible
   readonly property bool show7dSection: root.connectedPanel && root.setting("show7d", true)
-  readonly property bool show6wSection: root.connectedPanel && root.setting("show6w", true)
+  readonly property bool showTrendSection: root.connectedPanel && root.setting("show6w", true)
   readonly property bool showYearSection: root.connectedPanel && root.setting("showYear", true)
-  readonly property bool showRecent5Section: root.connectedPanel && root.setting("showRecent5", true)
+  readonly property bool showRecentSection: root.connectedPanel && root.setting("showRecent5", true)
 
   function pad(n) { return n < 10 ? "0" + n : "" + n }
+
+  // Activity dates are plain YYYY-MM-DD strings, which compare correctly as
+  // strings. Midday anchoring keeps the arithmetic clear of DST shifts.
+  function isoDaysAgo(n) {
+    var d = new Date()
+    d.setHours(12, 0, 0, 0)
+    d.setDate(d.getDate() - n)
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
+  }
+
+  function isoToDate(iso) {
+    var parts = String(iso).split("-")
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0, 0)
+  }
+
+  function daysBetween(fromIso, toIso) {
+    return Math.round((isoToDate(toIso) - isoToDate(fromIso)) / 86400000)
+  }
+
+  function runsBetween(fromIso, toIso) {
+    var result = []
+    for (var i = 0; i < activities.length; i++) {
+      var day = String(activities[i].date || "")
+      if (day >= fromIso && day <= toIso) result.push(activities[i])
+    }
+    return result
+  }
+
+  function totalKm(runs) {
+    var km = 0
+    for (var i = 0; i < runs.length; i++) km += runs[i].distanceKm || 0
+    return km
+  }
+
+  function elapsedWeeksThisYear() {
+    var now = new Date()
+    now.setHours(12, 0, 0, 0)
+    var yearStart = new Date(now.getFullYear(), 0, 1, 12, 0, 0, 0)
+    return Math.max(1, (Math.round((now - yearStart) / 86400000) + 1) / 7)
+  }
 
   function formatDuration(sec) {
     sec = Math.round(sec)
@@ -58,6 +164,27 @@ Item {
     var value = root.settings ? root.settings[name] : undefined
     return (value === undefined || value === null) ? fallback : value
   }
+
+  function settingInt(name, fallback, min, max) {
+    var value = Math.round(Number(setting(name, fallback)))
+    if (!isFinite(value)) value = fallback
+    return Math.max(min, Math.min(max, value))
+  }
+
+  // Held locally rather than bound straight to `settings` so a changed value
+  // applies immediately instead of snapping back until the write round-trips
+  // through the bar.
+  property int avgWeeks: 6
+  property int recentCount: 5
+  property int refreshMinutes: 15
+
+  function syncSettingValues() {
+    avgWeeks = settingInt("avgWeeks", 6, 2, 10)
+    recentCount = settingInt("recentCount", 5, 3, 10)
+    refreshMinutes = settingInt("refreshMinutes", 15, 5, 120)
+  }
+
+  onSettingsChanged: syncSettingValues()
 
   readonly property string pluginDir: Qt.resolvedUrl(".").toString().replace("file://", "")
   readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/omarchy/strava"
@@ -121,15 +248,36 @@ Item {
   }
 
   Timer {
-    interval: Math.max(5, parseInt(root.setting("refreshMinutes", 15), 10) || 15) * 60 * 1000
+    interval: root.refreshMinutes * 60 * 1000
     running: true
     repeat: true
     triggeredOnStart: true
     onTriggered: root.refresh()
   }
 
-  function setToggle(key, value) {
-    settingsProcess.command = ["omarchy-bar", "set", "grunkan.runalyzer", key, value ? "true" : "false", "--json"]
+  function setToggle(key, value) { enqueueSetting(key, value ? "true" : "false") }
+  function setNumber(key, value) { enqueueSetting(key, String(value)) }
+
+  // A Process runs one command at a time, so writes are queued and drained in
+  // order. Without the queue, two quick changes would drop one silently.
+  property var pendingSettingWrites: []
+
+  function enqueueSetting(key, jsonValue) {
+    // An editable SpinBox commits its text on focus loss, re-emitting the
+    // value it already had; writing that back would spawn a process for a
+    // change that isn't one.
+    if (String(setting(key, "")) === jsonValue) return
+    pendingSettingWrites = pendingSettingWrites.concat([[key, jsonValue]])
+    drainSettingWrites()
+  }
+
+  function drainSettingWrites() {
+    if (settingsProcess.running || pendingSettingWrites.length === 0) return
+    var next = pendingSettingWrites[0]
+    pendingSettingWrites = pendingSettingWrites.slice(1)
+    // --json makes the value land as a real JSON number/boolean; without it
+    // omarchy-bar would store every value as a quoted string.
+    settingsProcess.command = ["omarchy-bar", "set", "grunkan.runalyzer", next[0], next[1], "--json"]
     settingsProcess.running = true
   }
 
@@ -137,6 +285,7 @@ Item {
     id: settingsProcess
     running: false
     command: []
+    onExited: Qt.callLater(root.drainSettingWrites)
   }
 
   IpcHandler {
@@ -220,7 +369,10 @@ Item {
   }
 
   onBarChanged: syncClickRegistration()
-  Component.onCompleted: syncClickRegistration()
+  Component.onCompleted: {
+    syncClickRegistration()
+    syncSettingValues()
+  }
   Component.onDestruction: if (registeredBar && registeredBar.unregisterClickTarget) registeredBar.unregisterClickTarget(root)
 
   KeyboardPanel {
@@ -238,638 +390,676 @@ Item {
       anchors.fill: parent
       blocked: true
 
-      Column {
-        id: contentColumn
-        width: parent.width
-        spacing: 10
+      ScrollView {
+        id: scrollArea
+        anchors.fill: parent
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        // AlwaysOn rather than AsNeeded: the Basic style's AsNeeded bar is an
+        // overlay that only appears while scrolling, leaving no hint that the
+        // clipped content continues.
+        ScrollBar.vertical.policy: contentColumn.implicitHeight > height
+          ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
 
-        Item {
-          width: parent.width
-          height: titleText.implicitHeight
-
-          Text {
-            id: titleText
-            anchors.centerIn: parent
-            text: "Runalyzer"
-            color: root.mainColor
-            font.pixelSize: 19
-            font.bold: true
-          }
-
-          Rectangle {
-            id: refreshButton
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: 22
-            height: 22
-            radius: 5
-            color: refreshArea.containsMouse ? root.mutedColor : "transparent"
-            opacity: syncProcess.running ? 0.5 : 1
-
-            Text {
-              anchors.centerIn: parent
-              text: "⟳"
-              color: root.mainColor
-              font.pixelSize: 16
-            }
-
-            MouseArea {
-              id: refreshArea
-              anchors.fill: parent
-              hoverEnabled: true
-              onClicked: root.refresh()
-            }
-
-            Rectangle {
-              visible: refreshArea.containsMouse
-              anchors.top: parent.bottom
-              anchors.right: parent.right
-              anchors.topMargin: 4
-              height: refreshTooltipText.implicitHeight + 6
-              width: refreshTooltipText.implicitWidth + 12
-              radius: 4
-              color: root.bar ? root.bar.background : "#222222"
-              border.width: 1
-              border.color: root.mutedColor
-              z: 10
-              Text { id: refreshTooltipText; anchors.centerIn: parent; text: "Refresh"; color: root.mainColor; font.pixelSize: 10 }
-            }
-          }
-
-          Rectangle {
-            id: settingsButton
-            anchors.right: refreshButton.left
-            anchors.rightMargin: 4
-            anchors.verticalCenter: parent.verticalCenter
-            width: 22
-            height: 22
-            radius: 5
-            color: settingsArea.containsMouse || root.showSettingsPanel ? root.mutedColor : "transparent"
-
-            Text {
-              anchors.centerIn: parent
-              text: "⚙"
-              color: root.mainColor
-              font.pixelSize: 14
-            }
-
-            MouseArea {
-              id: settingsArea
-              anchors.fill: parent
-              hoverEnabled: true
-              onClicked: root.showSettingsPanel = !root.showSettingsPanel
-            }
-
-            Rectangle {
-              visible: settingsArea.containsMouse
-              anchors.top: parent.bottom
-              anchors.right: parent.right
-              anchors.topMargin: 4
-              height: settingsTooltipText.implicitHeight + 6
-              width: settingsTooltipText.implicitWidth + 12
-              radius: 4
-              color: root.bar ? root.bar.background : "#222222"
-              border.width: 1
-              border.color: root.mutedColor
-              z: 10
-              Text { id: settingsTooltipText; anchors.centerIn: parent; text: "Settings"; color: root.mainColor; font.pixelSize: 10 }
-            }
-          }
-        }
-
-        Rectangle {
-          width: parent.width
-          height: 1
-          color: root.mutedColor
-          opacity: 0.4
+        // Keeps the flickable from swallowing wheel and drag events while
+        // the content still fits.
+        Binding {
+          target: scrollArea.contentItem
+          property: "interactive"
+          value: contentColumn.implicitHeight > scrollArea.height
         }
 
         Column {
-          width: parent.width
-          spacing: 8
-          visible: root.showSettingsPanel
+          id: contentColumn
+          width: scrollArea.availableWidth
+          spacing: 10
 
-          Text {
+          Item {
             width: parent.width
-            text: "Settings"
-            color: root.mainColor
-            font.pixelSize: 13
-            font.bold: true
-          }
-
-          Row {
-            width: parent.width
-            Text {
-              width: parent.width - 60
-              text: "Last 7 days"
-              color: root.mainColor
-              font.pixelSize: 12
-              anchors.verticalCenter: parent.verticalCenter
-            }
-            Rectangle {
-              width: 50
-              height: 24
-              radius: 12
-              border.width: 1
-              border.color: root.mutedColor
-              color: root.setting("show7d", true) ? root.mutedColor : "transparent"
-              Text {
-                anchors.centerIn: parent
-                text: root.setting("show7d", true) ? "On" : "Off"
-                color: root.mainColor
-                font.pixelSize: 11
-              }
-              MouseArea {
-                anchors.fill: parent
-                onClicked: root.setToggle("show7d", !root.setting("show7d", true))
-              }
-            }
-          }
-
-          Row {
-            width: parent.width
-            Text {
-              width: parent.width - 60
-              text: "Last 6 weeks"
-              color: root.mainColor
-              font.pixelSize: 12
-              anchors.verticalCenter: parent.verticalCenter
-            }
-            Rectangle {
-              width: 50
-              height: 24
-              radius: 12
-              border.width: 1
-              border.color: root.mutedColor
-              color: root.setting("show6w", true) ? root.mutedColor : "transparent"
-              Text {
-                anchors.centerIn: parent
-                text: root.setting("show6w", true) ? "On" : "Off"
-                color: root.mainColor
-                font.pixelSize: 11
-              }
-              MouseArea {
-                anchors.fill: parent
-                onClicked: root.setToggle("show6w", !root.setting("show6w", true))
-              }
-            }
-          }
-
-          Row {
-            width: parent.width
-            Text {
-              width: parent.width - 60
-              text: "This year"
-              color: root.mainColor
-              font.pixelSize: 12
-              anchors.verticalCenter: parent.verticalCenter
-            }
-            Rectangle {
-              width: 50
-              height: 24
-              radius: 12
-              border.width: 1
-              border.color: root.mutedColor
-              color: root.setting("showYear", true) ? root.mutedColor : "transparent"
-              Text {
-                anchors.centerIn: parent
-                text: root.setting("showYear", true) ? "On" : "Off"
-                color: root.mainColor
-                font.pixelSize: 11
-              }
-              MouseArea {
-                anchors.fill: parent
-                onClicked: root.setToggle("showYear", !root.setting("showYear", true))
-              }
-            }
-          }
-
-          Row {
-            width: parent.width
-            Text {
-              width: parent.width - 60
-              text: "Last 5 activities"
-              color: root.mainColor
-              font.pixelSize: 12
-              anchors.verticalCenter: parent.verticalCenter
-            }
-            Rectangle {
-              width: 50
-              height: 24
-              radius: 12
-              border.width: 1
-              border.color: root.mutedColor
-              color: root.setting("showRecent5", true) ? root.mutedColor : "transparent"
-              Text {
-                anchors.centerIn: parent
-                text: root.setting("showRecent5", true) ? "On" : "Off"
-                color: root.mainColor
-                font.pixelSize: 11
-              }
-              MouseArea {
-                anchors.fill: parent
-                onClicked: root.setToggle("showRecent5", !root.setting("showRecent5", true))
-              }
-            }
-          }
-        }
-
-        Column {
-          width: parent.width
-          spacing: 8
-          visible: root.disconnectedPanel
-
-          Text {
-            width: parent.width
-            wrapMode: Text.Wrap
-            text: "Not connected to Strava"
-            color: root.mainColor
-            font.pixelSize: 13
-            font.bold: true
-          }
-
-          Text {
-            width: parent.width
-            wrapMode: Text.Wrap
-            text: root.syncStatus.authHelpText || "Connect your Strava account to see your latest runs."
-            color: root.mutedColor
-            font.pixelSize: 11
-          }
-
-          Rectangle {
-            width: parent.width
-            height: 28
-            radius: 6
-            color: "transparent"
-            border.width: 1
-            border.color: root.mutedColor
-
-            TextInput {
-              id: clientIdField
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.margins: 7
-              verticalAlignment: TextInput.AlignVCenter
-              color: root.mainColor
-              font.pixelSize: 11
-              text: root.connectClientIdDefault
-              clip: true
-
-              Text {
-                visible: clientIdField.text.length === 0
-                text: "Client ID"
-                color: root.mutedColor
-                font.pixelSize: 11
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-              }
-            }
-          }
-
-          Rectangle {
-            width: parent.width
-            height: 28
-            radius: 6
-            color: "transparent"
-            border.width: 1
-            border.color: root.mutedColor
-
-            TextInput {
-              id: clientSecretField
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.margins: 7
-              verticalAlignment: TextInput.AlignVCenter
-              color: root.mainColor
-              font.pixelSize: 11
-              echoMode: TextInput.Password
-              clip: true
-
-              Text {
-                visible: clientSecretField.text.length === 0
-                text: "Client Secret"
-                color: root.mutedColor
-                font.pixelSize: 11
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-              }
-            }
-          }
-
-          Rectangle {
-            id: connectButton
-            width: 90
-            height: 28
-            radius: 6
-            color: connectArea.containsMouse ? root.mutedColor : "transparent"
-            border.width: 1
-            border.color: root.mutedColor
+            height: titleText.implicitHeight
 
             Text {
+              id: titleText
               anchors.centerIn: parent
-              text: root.connecting ? "…" : "Connect"
+              text: "Runalyzer"
               color: root.mainColor
-              font.pixelSize: 12
+              font.pixelSize: 19
+              font.bold: true
             }
 
-            MouseArea {
-              id: connectArea
-              anchors.fill: parent
-              hoverEnabled: true
-              enabled: !root.connecting
-              onClicked: root.beginConnect(clientIdField.text, clientSecretField.text)
+            Rectangle {
+              id: refreshButton
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              width: 22
+              height: 22
+              radius: 5
+              color: refreshArea.containsMouse ? root.mutedColor : "transparent"
+              opacity: syncProcess.running ? 0.5 : 1
+
+              Text {
+                anchors.centerIn: parent
+                text: "⟳"
+                color: root.mainColor
+                font.pixelSize: 16
+              }
+
+              MouseArea {
+                id: refreshArea
+                anchors.fill: parent
+                hoverEnabled: true
+                onClicked: root.refresh()
+              }
+
+              PanelToolTip {
+                visible: refreshArea.containsMouse
+                text: "Refresh"
+                fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              }
+            }
+
+            Rectangle {
+              id: settingsButton
+              anchors.right: refreshButton.left
+              anchors.rightMargin: 4
+              anchors.verticalCenter: parent.verticalCenter
+              width: 22
+              height: 22
+              radius: 5
+              color: settingsArea.containsMouse || root.showSettingsPanel ? root.mutedColor : "transparent"
+
+              Text {
+                anchors.centerIn: parent
+                text: "⚙"
+                color: root.mainColor
+                font.pixelSize: 14
+              }
+
+              MouseArea {
+                id: settingsArea
+                anchors.fill: parent
+                hoverEnabled: true
+                onClicked: root.showSettingsPanel = !root.showSettingsPanel
+              }
+
+              PanelToolTip {
+                visible: settingsArea.containsMouse
+                text: "Settings"
+                fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              }
+            }
+          }
+
+          PanelSeparator { foreground: root.mainColor }
+
+          Column {
+            width: parent.width
+            spacing: 8
+            visible: root.showSettingsPanel
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "Sections"
+              foreground: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            }
+
+            Toggle {
+              width: parent.width
+              label: "Last 7 days"
+              checked: root.setting("show7d", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("show7d", !root.setting("show7d", true))
+            }
+
+            Toggle {
+              width: parent.width
+              label: "Weekly trend"
+              checked: root.setting("show6w", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("show6w", !root.setting("show6w", true))
+            }
+
+            Toggle {
+              width: parent.width
+              label: "This year"
+              checked: root.setting("showYear", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("showYear", !root.setting("showYear", true))
+            }
+
+            Toggle {
+              width: parent.width
+              label: "Recent activities"
+              checked: root.setting("showRecent5", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("showRecent5", !root.setting("showRecent5", true))
+            }
+
+            PanelSeparator { foreground: root.mainColor }
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "Amounts"
+              foreground: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            }
+
+            NumberField {
+              label: "Weeks in the trend"
+              from: 2
+              to: 10
+              value: root.avgWeeks
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onModified: function(weeks) {
+                root.avgWeeks = weeks
+                root.setNumber("avgWeeks", weeks)
+              }
+            }
+
+            NumberField {
+              label: "Activities in the list"
+              from: 3
+              to: 10
+              value: root.recentCount
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onModified: function(count) {
+                root.recentCount = count
+                root.setNumber("recentCount", count)
+              }
+            }
+
+            NumberField {
+              label: "Refresh interval (minutes)"
+              from: 5
+              to: 120
+              stepSize: 5
+              value: root.refreshMinutes
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onModified: function(minutes) {
+                root.refreshMinutes = minutes
+                root.setNumber("refreshMinutes", minutes)
+              }
+            }
+          }
+
+          Column {
+            width: parent.width
+            spacing: 8
+            visible: root.disconnectedPanel
+
+            Text {
+              width: parent.width
+              wrapMode: Text.Wrap
+              text: "Not connected to Strava"
+              color: root.mainColor
+              font.pixelSize: 13
+              font.bold: true
+            }
+
+            Text {
+              width: parent.width
+              wrapMode: Text.Wrap
+              text: root.syncStatus.authHelpText || "Connect your Strava account to see your latest runs."
+              color: root.mutedColor
+              font.pixelSize: 11
+            }
+
+            Rectangle {
+              width: parent.width
+              height: 28
+              radius: 6
+              color: "transparent"
+              border.width: 1
+              border.color: root.mutedColor
+
+              TextInput {
+                id: clientIdField
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.margins: 7
+                verticalAlignment: TextInput.AlignVCenter
+                color: root.mainColor
+                font.pixelSize: 11
+                text: root.connectClientIdDefault
+                clip: true
+
+                Text {
+                  visible: clientIdField.text.length === 0
+                  text: "Client ID"
+                  color: root.mutedColor
+                  font.pixelSize: 11
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+            }
+
+            Rectangle {
+              width: parent.width
+              height: 28
+              radius: 6
+              color: "transparent"
+              border.width: 1
+              border.color: root.mutedColor
+
+              TextInput {
+                id: clientSecretField
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.margins: 7
+                verticalAlignment: TextInput.AlignVCenter
+                color: root.mainColor
+                font.pixelSize: 11
+                echoMode: TextInput.Password
+                clip: true
+
+                Text {
+                  visible: clientSecretField.text.length === 0
+                  text: "Client Secret"
+                  color: root.mutedColor
+                  font.pixelSize: 11
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+            }
+
+            Rectangle {
+              id: connectButton
+              width: 90
+              height: 28
+              radius: 6
+              color: connectArea.containsMouse ? root.mutedColor : "transparent"
+              border.width: 1
+              border.color: root.mutedColor
+
+              Text {
+                anchors.centerIn: parent
+                text: root.connecting ? "…" : "Connect"
+                color: root.mainColor
+                font.pixelSize: 12
+              }
+
+              MouseArea {
+                id: connectArea
+                anchors.fill: parent
+                hoverEnabled: true
+                enabled: !root.connecting
+                onClicked: root.beginConnect(clientIdField.text, clientSecretField.text)
+              }
+            }
+
+            Text {
+              visible: root.connectMessage !== ""
+              width: parent.width
+              wrapMode: Text.Wrap
+              text: root.connectMessage
+              color: root.mutedColor
+              font.pixelSize: 10
+            }
+          }
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "Last 7 days"
+            foreground: root.mainColor
+            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            visible: root.show7dSection
+          }
+
+          Row {
+            width: parent.width
+            spacing: 8
+            visible: root.show7dSection
+
+            Column {
+              width: (parent.width - 24) / 4
+              spacing: 2
+              Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summary.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 24) / 4
+              spacing: 2
+              Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summary.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 24) / 4
+              spacing: 2
+              Text { text: "Time"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.formatDuration(root.summary.durationSec); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 24) / 4
+              spacing: 2
+              Text { text: "Elev."; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summary.elevationM + " m"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.showTrendSection
+          }
+
+          Item {
+            width: parent.width
+            height: trendHeader.implicitHeight
+            visible: root.showTrendSection
+
+            PanelSectionHeader {
+              id: trendHeader
+              anchors.left: parent.left
+              text: "Last " + root.avgWeeks + " weeks"
+              foreground: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            }
+
+            Text {
+              anchors.right: parent.right
+              anchors.baseline: trendHeader.baseline
+              visible: root.hasTrendComparison
+              text: (root.trendChangePercent >= 0 ? "▲ +" : "▼ ")
+                + root.trendChangePercent.toFixed(0) + "% vs previous"
+              color: root.mutedColor
+              font.pixelSize: 10
+            }
+          }
+
+          Row {
+            width: parent.width
+            spacing: 8
+            visible: root.showTrendSection
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summaryWeeks.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summaryWeeks.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "Avg km/wk"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summaryWeeks.avgKmPerWeek.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+          }
+
+          Row {
+            width: parent.width
+            height: 44
+            spacing: 3
+            visible: root.showTrendSection && root.weeklyKmMax > 0
+
+            Repeater {
+              model: root.avgWeeks
+
+              Item {
+                id: weekBar
+                required property int index
+
+                // Oldest block on the left, the one ending today on the right.
+                readonly property real km: root.weeklyKm[root.avgWeeks - 1 - index] || 0
+                readonly property bool current: index === root.avgWeeks - 1
+
+                width: (parent.width - (root.avgWeeks - 1) * 3) / root.avgWeeks
+                height: parent.height
+
+                Rectangle {
+                  id: barFill
+                  anchors.bottom: parent.bottom
+                  width: parent.width
+                  height: Math.max(2, parent.height * weekBar.km / Math.max(1, root.weeklyKmMax))
+                  radius: 2
+                  color: weekBar.current ? root.mainColor : root.mutedColor
+                  opacity: weekBarArea.containsMouse || weekBar.current ? 1 : 0.55
+
+                  Behavior on height { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                }
+
+                // Sibling of the bar rather than a child: children inherit the
+                // 0.55 opacity above, which would wash the numbers out.
+                Text {
+                  anchors.horizontalCenter: barFill.horizontalCenter
+                  anchors.bottom: barFill.bottom
+                  anchors.bottomMargin: 2
+                  visible: barFill.height >= 12
+                  text: Math.round(weekBar.km)
+                  color: weekBar.current ? (root.bar ? root.bar.background : "#222222") : root.mainColor
+                  font.pixelSize: 9
+                  font.family: root.bar ? root.bar.fontFamily : "monospace"
+                }
+
+                MouseArea {
+                  id: weekBarArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                }
+
+                PanelToolTip {
+                  visible: weekBarArea.containsMouse
+                  text: weekBar.km.toFixed(1) + " km"
+                  fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+                }
+              }
             }
           }
 
           Text {
-            visible: root.connectMessage !== ""
             width: parent.width
-            wrapMode: Text.Wrap
-            text: root.connectMessage
+            visible: root.showTrendSection && root.streakWeeks > 1
+            text: root.streakWeeks + " weeks in a row with a run"
             color: root.mutedColor
             font.pixelSize: 10
           }
-        }
 
-        Text {
-          text: "Last 7 days"
-          color: root.mutedColor
-          font.pixelSize: 12
-          font.bold: true
-          visible: root.show7dSection
-        }
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.showYearSection
+          }
 
-        Row {
-          width: parent.width
-          spacing: 8
-          visible: root.show7dSection
+          PanelSectionHeader {
+            width: parent.width
+            text: "This year"
+            foreground: root.mainColor
+            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            visible: root.showYearSection
+          }
 
-          Column {
-            width: (parent.width - 24) / 4
-            spacing: 2
-            Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summary.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+          Row {
+            width: parent.width
+            spacing: 8
+            visible: root.showYearSection
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summaryYear.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summaryYear.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "Avg km/wk"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.summaryYear.avgKmPerWeek.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.connectedPanel
+          }
+
+          Text {
+            visible: root.connectedPanel && !!root.syncStatus.error
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: root.syncStatus.authHelpText
+            color: root.mutedColor
+            font.pixelSize: 10
+          }
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "Last " + root.recentCount + " activities"
+            foreground: root.mainColor
+            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            visible: root.showRecentSection
           }
 
           Column {
-            width: (parent.width - 24) / 4
-            spacing: 2
-            Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summary.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            width: parent.width
+            spacing: 6
+            visible: root.showRecentSection
+
+            Repeater {
+              model: root.recentActivities
+
+              Rectangle {
+                id: card
+                required property var modelData
+
+                width: parent ? parent.width : 0
+                height: cardCol.implicitHeight + 14
+                radius: 8
+                color: cardArea.containsMouse ? Qt.rgba(root.mutedColor.r, root.mutedColor.g, root.mutedColor.b, 0.12) : "transparent"
+                border.width: 1
+                border.color: root.mutedColor
+
+                Column {
+                  id: cardCol
+                  anchors.fill: parent
+                  anchors.margins: 7
+                  spacing: 3
+
+                  Text {
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                    color: root.mainColor
+                    font.pixelSize: 12
+                    font.bold: true
+                    text: card.modelData.name + "  •  " + card.modelData.date + "  •  " + card.modelData.time
+                  }
+
+                  Text {
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    color: root.mutedColor
+                    font.pixelSize: 12
+                    text: card.modelData.distanceKm.toFixed(1) + " km  •  "
+                      + root.formatDuration(card.modelData.durationSec) + "  •  "
+                      + root.formatPace(card.modelData.durationSec, card.modelData.distanceKm) + "  •  "
+                      + card.modelData.elevationM + " m  •  "
+                      + (card.modelData.avgHr ? card.modelData.avgHr + " bpm" : "–")
+                  }
+                }
+
+                MouseArea {
+                  id: cardArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: if (card.modelData.id) Qt.openUrlExternally("https://www.strava.com/activities/" + card.modelData.id)
+                }
+
+                PanelToolTip {
+                  visible: cardArea.containsMouse
+                  text: "View on Strava"
+                  fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+                }
+              }
+            }
           }
 
-          Column {
-            width: (parent.width - 24) / 4
-            spacing: 2
-            Text { text: "Time"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.formatDuration(root.summary.durationSec); color: root.mainColor; font.pixelSize: 15; font.bold: true }
-          }
-
-          Column {
-            width: (parent.width - 24) / 4
-            spacing: 2
-            Text { text: "Elev."; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summary.elevationM + " m"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
-          }
-        }
-
-        Rectangle {
-          width: parent.width
-          height: 1
-          color: root.mutedColor
-          opacity: 0.4
-          visible: root.show6wSection
-        }
-
-        Text {
-          text: "Last 6 weeks"
-          color: root.mutedColor
-          font.pixelSize: 12
-          font.bold: true
-          visible: root.show6wSection
-        }
-
-        Row {
-          width: parent.width
-          spacing: 8
-          visible: root.show6wSection
-
-          Column {
-            width: (parent.width - 16) / 3
-            spacing: 2
-            Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summaryWeeks.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
-          }
-
-          Column {
-            width: (parent.width - 16) / 3
-            spacing: 2
-            Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summaryWeeks.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
-          }
-
-          Column {
-            width: (parent.width - 16) / 3
-            spacing: 2
-            Text { text: "Avg km/wk"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summaryWeeks.avgKmPerWeek.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
-          }
-        }
-
-        Rectangle {
-          width: parent.width
-          height: 1
-          color: root.mutedColor
-          opacity: 0.4
-          visible: root.showYearSection
-        }
-
-        Text {
-          text: "This year"
-          color: root.mutedColor
-          font.pixelSize: 12
-          font.bold: true
-          visible: root.showYearSection
-        }
-
-        Row {
-          width: parent.width
-          spacing: 8
-          visible: root.showYearSection
-
-          Column {
-            width: (parent.width - 16) / 3
-            spacing: 2
-            Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summaryYear.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
-          }
-
-          Column {
-            width: (parent.width - 16) / 3
-            spacing: 2
-            Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summaryYear.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
-          }
-
-          Column {
-            width: (parent.width - 16) / 3
-            spacing: 2
-            Text { text: "Avg km/wk"; color: root.mutedColor; font.pixelSize: 10 }
-            Text { text: root.summaryYear.avgKmPerWeek.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
-          }
-        }
-
-        Rectangle {
-          width: parent.width
-          height: 1
-          color: root.mutedColor
-          opacity: 0.4
-          visible: root.connectedPanel
-        }
-
-        Text {
-          visible: root.connectedPanel && !!root.syncStatus.error
-          width: parent.width
-          wrapMode: Text.Wrap
-          text: root.syncStatus.authHelpText
-          color: root.mutedColor
-          font.pixelSize: 10
-        }
-
-        Text {
-          text: "Last 5 activities"
-          color: root.mutedColor
-          font.pixelSize: 12
-          font.bold: true
-          visible: root.showRecent5Section
-        }
-
-        Column {
-          width: parent.width
-          spacing: 6
-          visible: root.showRecent5Section
-
-          Repeater {
-            model: root.activities
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 8
+            visible: root.panelBaseVisible
 
             Rectangle {
-              id: card
-              required property var modelData
-
-              width: parent ? parent.width : 0
-              height: cardCol.implicitHeight + 14
-              radius: 8
-              color: cardArea.containsMouse ? Qt.rgba(root.mutedColor.r, root.mutedColor.g, root.mutedColor.b, 0.12) : "transparent"
+              id: stravaButton
+              width: 90
+              height: 28
+              radius: 6
+              color: stravaArea.containsMouse ? root.mutedColor : "transparent"
               border.width: 1
               border.color: root.mutedColor
 
-              Column {
-                id: cardCol
-                anchors.fill: parent
-                anchors.margins: 7
-                spacing: 3
-
-                Text {
-                  width: parent.width
-                  wrapMode: Text.Wrap
-                  textFormat: Text.PlainText
-                  color: root.mainColor
-                  font.pixelSize: 12
-                  font.bold: true
-                  text: card.modelData.name + "  •  " + card.modelData.date + "  •  " + card.modelData.time
-                }
-
-                Text {
-                  width: parent.width
-                  wrapMode: Text.Wrap
-                  color: root.mutedColor
-                  font.pixelSize: 12
-                  text: card.modelData.distanceKm.toFixed(1) + " km  •  "
-                    + root.formatDuration(card.modelData.durationSec) + "  •  "
-                    + root.formatPace(card.modelData.durationSec, card.modelData.distanceKm) + "  •  "
-                    + card.modelData.elevationM + " m  •  "
-                    + (card.modelData.avgHr ? card.modelData.avgHr + " bpm" : "–")
-                }
+              Text {
+                anchors.centerIn: parent
+                text: "To Strava"
+                color: root.mainColor
+                font.pixelSize: 12
               }
 
               MouseArea {
-                id: cardArea
+                id: stravaArea
                 anchors.fill: parent
                 hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: if (card.modelData.id) Qt.openUrlExternally("https://www.strava.com/activities/" + card.modelData.id)
-              }
-
-              Rectangle {
-                visible: cardArea.containsMouse
-                anchors.top: parent.top
-                anchors.right: parent.right
-                anchors.margins: 4
-                height: cardTooltipText.implicitHeight + 6
-                width: cardTooltipText.implicitWidth + 12
-                radius: 4
-                color: root.bar ? root.bar.background : "#222222"
-                border.width: 1
-                border.color: root.mutedColor
-                z: 10
-                Text { id: cardTooltipText; anchors.centerIn: parent; text: "View on Strava"; color: root.mainColor; font.pixelSize: 10 }
+                onClicked: Qt.openUrlExternally("https://www.strava.com/dashboard")
               }
             }
-          }
-        }
 
-        Row {
-          anchors.horizontalCenter: parent.horizontalCenter
-          spacing: 8
-          visible: root.panelBaseVisible
+            Rectangle {
+              id: closeButton
+              width: 90
+              height: 28
+              radius: 6
+              color: closeArea.containsMouse ? root.mutedColor : "transparent"
+              border.width: 1
+              border.color: root.mutedColor
 
-          Rectangle {
-            id: stravaButton
-            width: 90
-            height: 28
-            radius: 6
-            color: stravaArea.containsMouse ? root.mutedColor : "transparent"
-            border.width: 1
-            border.color: root.mutedColor
+              Text {
+                anchors.centerIn: parent
+                text: "Close"
+                color: root.mainColor
+                font.pixelSize: 12
+              }
 
-            Text {
-              anchors.centerIn: parent
-              text: "To Strava"
-              color: root.mainColor
-              font.pixelSize: 12
-            }
-
-            MouseArea {
-              id: stravaArea
-              anchors.fill: parent
-              hoverEnabled: true
-              onClicked: Qt.openUrlExternally("https://www.strava.com/dashboard")
-            }
-          }
-
-          Rectangle {
-            id: closeButton
-            width: 90
-            height: 28
-            radius: 6
-            color: closeArea.containsMouse ? root.mutedColor : "transparent"
-            border.width: 1
-            border.color: root.mutedColor
-
-            Text {
-              anchors.centerIn: parent
-              text: "Close"
-              color: root.mainColor
-              font.pixelSize: 12
-            }
-
-            MouseArea {
-              id: closeArea
-              anchors.fill: parent
-              hoverEnabled: true
-              onClicked: root.popupOpen = false
+              MouseArea {
+                id: closeArea
+                anchors.fill: parent
+                hoverEnabled: true
+                onClicked: root.popupOpen = false
+              }
             }
           }
         }

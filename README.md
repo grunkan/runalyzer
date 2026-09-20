@@ -6,18 +6,24 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
-**Latest release:** [v0.3.2](https://github.com/grunkan/runalyzer/releases/tag/v0.3.2) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v0.4.0](https://github.com/grunkan/runalyzer/releases/tag/v0.4.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
-- Your last 5 runs — name, date, time, distance, duration, pace, elevation
+- Your latest runs — name, date, time, distance, duration, pace, elevation
   gain, and average heart rate. Click a run to open it on Strava; hover for
   a "View on Strava" tooltip.
 - **Last 7 days** summary: runs, km, time, elevation gain.
-- **Last 6 weeks** trend: runs, km, average km/week.
+- **Weekly trend** over 2–10 weeks: runs, km, average km/week, a bar chart of
+  kilometres per week, and how the period compares to the one before it.
 - **This year** totals: runs, km, average km/week.
-- Toggle any of the four sections on/off from the settings panel.
-- Configurable auto-refresh interval (5–120 minutes, default 15).
+- Your current streak of consecutive weeks with at least one run.
+- Toggle any of the four sections on/off, and choose how many weeks the trend
+  covers and how many activities the list shows.
+
+All time windows are rolling: "last 7 days" is today plus the six days before
+it, and a trend of N weeks is today plus the preceding N×7−1 days. Changing a
+setting recomputes everything immediately — no waiting for the next sync.
 
 ## Requirements
 
@@ -66,9 +72,14 @@ only ever sent directly to Strava's own API — nowhere else.
 
 Click the gear icon in the popup to:
 
-- Toggle which of the four sections (Last 7 days / Last 6 weeks / This year /
-  Last 5 activities) are shown.
-- Set the auto-refresh interval in minutes.
+- Toggle which of the four sections (Last 7 days / Weekly trend / This year /
+  Recent activities) are shown.
+- Set how many weeks the trend covers (2–10, default 6).
+- Set how many activities the list shows (3–10, default 5).
+- Set the auto-refresh interval in minutes (5–120, default 15).
+
+Settings are stored per widget in `~/.config/omarchy/shell.json` and survive
+reinstalling the plugin.
 
 ## License
 
