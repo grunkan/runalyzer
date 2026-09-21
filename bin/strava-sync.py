@@ -168,6 +168,9 @@ def map_activity(activity):
     # entirely on activities recorded without a monitor.
     avg_hr = activity.get("average_heartrate")
     max_hr = activity.get("max_heartrate")
+    # Relative Effort. Strava computes it from time in heart rate zones, which
+    # we cannot reproduce from the list endpoint, so it is worth keeping.
+    effort = activity.get("suffer_score")
     return {
         "id": activity.get("id"),
         "name": activity.get("name"),
@@ -178,6 +181,7 @@ def map_activity(activity):
         "elevationM": round(activity.get("total_elevation_gain") or 0),
         "avgHr": round(avg_hr) if avg_hr else None,
         "maxHr": round(max_hr) if max_hr else None,
+        "relativeEffort": round(effort) if effort else None,
     }
 
 

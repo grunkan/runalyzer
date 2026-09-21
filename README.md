@@ -6,7 +6,7 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
-**Latest release:** [v0.5.0](https://github.com/grunkan/runalyzer/releases/tag/v0.5.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v0.6.0](https://github.com/grunkan/runalyzer/releases/tag/v0.6.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
@@ -22,6 +22,8 @@ bar.
   above which a single run becomes a large jump.
 - **Efficiency trend** — metres covered per heartbeat on easy runs, compared
   with the preceding period.
+- **Load & intensity** — Relative Effort over the last 7 days against your
+  4-week average, and the share of sessions kept easy.
 - Toggle any of the four sections on/off, and choose how many weeks the trend
   covers and how many activities the list shows.
 
@@ -106,6 +108,25 @@ rate is at most 80% of maximum, its peak stays at or below 88% — which keeps
 interval sessions out, since warm-up and recovery pull their average down —
 and it climbs less than 10 m per km. The panel shows how many runs qualified,
 so a figure built on three runs is not mistaken for one built on fifteen.
+
+**Load & intensity.** Relative Effort is Strava's own measure of how hard a
+session was, weighted by time spent in each heart rate zone, so a week of it
+says more than a week of kilometres does. The panel shows the last 7 days
+against your 4-week daily average, as a percentage.
+
+It is framed as a change against your own norm, not as an acute:chronic
+workload ratio. That ratio is widely quoted, but its link to injury has not
+held up: a 2025 meta-analysis could not rule out zero for the supposedly safe
+band, and the evidence base is dominated by team sports. A number presented as
+risk gets read as risk, so this one is presented as context.
+
+Alongside it is the share of the last 28 days' sessions that stayed easy,
+meaning an average heart rate at or below 80% of maximum. Two caveats matter.
+It counts **sessions, not time in zones** — the 80/20 principle refers to the
+latter, which needs per-second data the widget does not fetch, and the two
+measures can differ by ten points or more for the same training. And sessions
+without heart rate are left out of both halves of the fraction rather than
+silently counted as easy.
 
 ## License
 

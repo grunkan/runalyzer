@@ -143,6 +143,47 @@ Item {
   // Three runs is the point below which an average says more about which runs
   // happened to qualify than about fitness.
   readonly property bool hasEfficiency: easyRunsNow.length >= 3 && easyRunsPrevious.length >= 3
+
+  // Strava's Relative Effort is weighted by time in heart rate zones, which is
+  // a better measure of how hard a week was than kilometres are.
+  function totalEffort(runs) {
+    var total = 0
+    for (var i = 0; i < runs.length; i++) total += runs[i].relativeEffort || 0
+    return total
+  }
+
+  readonly property real load7: totalEffort(runsBetween(isoDaysAgo(6), isoDaysAgo(0)))
+  readonly property real load28: totalEffort(runsBetween(isoDaysAgo(27), isoDaysAgo(0)))
+  readonly property bool hasLoad: load28 > 0
+  // Deliberately expressed as a change against your own recent norm rather
+  // than as an acute:chronic ratio: the ratio's link to injury has not held up
+  // in recent reviews, and a number framed as risk invites being read as one.
+  readonly property real loadChangePercent: hasLoad ? ((load7 / 7) / (load28 / 28) - 1) * 100 : 0
+
+  // A different question from isEasyRun(): that one also demands a low peak and
+  // flat ground so efficiency compares like with like. Here we only ask whether
+  // the session was easy overall, so a hilly easy run still counts as easy.
+  function isEasyEffort(a) {
+    return a.avgHr > 0 && effectiveHrMax > 0 && a.avgHr <= effectiveHrMax * 0.80
+  }
+
+  readonly property var classifiableRuns28: {
+    var runs = runsBetween(isoDaysAgo(27), isoDaysAgo(0))
+    var result = []
+    for (var i = 0; i < runs.length; i++) if (runs[i].avgHr > 0) result.push(runs[i])
+    return result
+  }
+
+  readonly property int easyRuns28: {
+    var count = 0
+    for (var i = 0; i < classifiableRuns28.length; i++)
+      if (isEasyEffort(classifiableRuns28[i])) count++
+    return count
+  }
+
+  readonly property bool hasIntensity: classifiableRuns28.length > 0
+  readonly property int easySharePercent: hasIntensity
+    ? Math.round(easyRuns28 / classifiableRuns28.length * 100) : 0
   readonly property real efficiencyChangePercent: hasEfficiency && efficiencyPrevious > 0
     ? (efficiencyNow - efficiencyPrevious) / efficiencyPrevious * 100 : 0
 
@@ -161,6 +202,8 @@ Item {
   readonly property bool showCeilingSection: root.connectedPanel && root.setting("showCeiling", true)
     && root.longest30Km > 0
   readonly property bool showEfficiencySection: root.connectedPanel && root.setting("showEfficiency", true)
+  readonly property bool showLoadSection: root.connectedPanel && root.setting("showLoad", true)
+    && root.hasLoad
 
   function pad(n) { return n < 10 ? "0" + n : "" + n }
 
@@ -631,6 +674,17 @@ Item {
 
             Toggle {
               width: parent.width
+              label: "Load & intensity"
+              description: "Relative Effort over 7 days against your 4-week average, and the share of sessions kept easy"
+              checked: root.setting("showLoad", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("showLoad", !root.setting("showLoad", true))
+            }
+
+            Toggle {
+              width: parent.width
               label: "Set max heart rate manually"
               description: root.setting("hrMaxManual", false)
                 ? "" : "Now using the highest recorded: " + root.derivedHrMax + " bpm"
@@ -1089,6 +1143,56 @@ Item {
             text: "Not enough easy runs to compare yet."
             color: root.mutedColor
             font.pixelSize: 10
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.showLoadSection
+          }
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "Load & intensity"
+            foreground: root.mainColor
+            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            visible: root.showLoadSection
+          }
+
+          Row {
+            width: parent.width
+            spacing: 8
+            visible: root.showLoadSection
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "7-day load"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: Math.round(root.load7); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "vs 4-week avg"; color: root.mutedColor; font.pixelSize: 10 }
+              Text {
+                text: (root.loadChangePercent >= 0 ? "+" : "") + root.loadChangePercent.toFixed(0) + "%"
+                color: root.mainColor
+                font.pixelSize: 15
+                font.bold: true
+              }
+            }
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "Easy sessions"; color: root.mutedColor; font.pixelSize: 10 }
+              Text {
+                text: root.hasIntensity ? root.easySharePercent + "%" : "–"
+                color: root.mainColor
+                font.pixelSize: 15
+                font.bold: true
+              }
+            }
           }
 
           PanelSeparator {

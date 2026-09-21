@@ -24,6 +24,7 @@ class MapActivityTest(unittest.TestCase):
             "total_elevation_gain": 87.4,
             "average_heartrate": 152.6,
             "max_heartrate": 171.0,
+            "suffer_score": 64.0,
         })
 
         self.assertEqual(mapped["id"], 42)
@@ -35,6 +36,7 @@ class MapActivityTest(unittest.TestCase):
         self.assertEqual(mapped["elevationM"], 87)
         self.assertEqual(mapped["avgHr"], 153)
         self.assertEqual(mapped["maxHr"], 171)
+        self.assertEqual(mapped["relativeEffort"], 64)
 
     def test_survives_an_activity_recorded_without_a_heart_rate_monitor(self):
         # Strava omits the heart rate keys entirely rather than nulling them,
@@ -49,6 +51,7 @@ class MapActivityTest(unittest.TestCase):
 
         self.assertIsNone(mapped["avgHr"])
         self.assertIsNone(mapped["maxHr"])
+        self.assertIsNone(mapped["relativeEffort"])
         self.assertAlmostEqual(mapped["distanceKm"], 5.0)
 
     def test_date_stays_sortable_iso(self):
@@ -70,6 +73,7 @@ class MapActivityTest(unittest.TestCase):
         self.assertEqual(mapped["elevationM"], 0)
         self.assertIsNone(mapped["avgHr"])
         self.assertIsNone(mapped["maxHr"])
+        self.assertIsNone(mapped["relativeEffort"])
 
 
 class FetchWindowTest(unittest.TestCase):
