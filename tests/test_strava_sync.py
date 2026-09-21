@@ -23,6 +23,7 @@ class MapActivityTest(unittest.TestCase):
             "moving_time": 3000,
             "total_elevation_gain": 87.4,
             "average_heartrate": 152.6,
+            "max_heartrate": 171.0,
         })
 
         self.assertEqual(mapped["id"], 42)
@@ -33,6 +34,22 @@ class MapActivityTest(unittest.TestCase):
         self.assertEqual(mapped["durationSec"], 3000)
         self.assertEqual(mapped["elevationM"], 87)
         self.assertEqual(mapped["avgHr"], 153)
+        self.assertEqual(mapped["maxHr"], 171)
+
+    def test_survives_an_activity_recorded_without_a_heart_rate_monitor(self):
+        # Strava omits the heart rate keys entirely rather than nulling them,
+        # and they are absent from the published schema, so they can only be
+        # read defensively.
+        mapped = sync.map_activity({
+            "id": 7,
+            "start_date_local": "2026-09-14T06:32:11Z",
+            "distance": 5000.0,
+            "moving_time": 1800,
+        })
+
+        self.assertIsNone(mapped["avgHr"])
+        self.assertIsNone(mapped["maxHr"])
+        self.assertAlmostEqual(mapped["distanceKm"], 5.0)
 
     def test_date_stays_sortable_iso(self):
         # The widget compares these strings lexicographically to build its
@@ -52,6 +69,7 @@ class MapActivityTest(unittest.TestCase):
         self.assertEqual(mapped["durationSec"], 0)
         self.assertEqual(mapped["elevationM"], 0)
         self.assertIsNone(mapped["avgHr"])
+        self.assertIsNone(mapped["maxHr"])
 
 
 class FetchWindowTest(unittest.TestCase):

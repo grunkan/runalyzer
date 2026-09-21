@@ -163,7 +163,11 @@ def map_activity(activity):
     start = activity.get("start_date_local") or ""
     date, _, rest = start.partition("T")
     time_part = rest[:5] if rest else ""
+    # The heart rate fields are absent from Strava's published schema even
+    # though the list endpoint returns them, and the keys are omitted
+    # entirely on activities recorded without a monitor.
     avg_hr = activity.get("average_heartrate")
+    max_hr = activity.get("max_heartrate")
     return {
         "id": activity.get("id"),
         "name": activity.get("name"),
@@ -173,6 +177,7 @@ def map_activity(activity):
         "durationSec": activity.get("moving_time") or 0,
         "elevationM": round(activity.get("total_elevation_gain") or 0),
         "avgHr": round(avg_hr) if avg_hr else None,
+        "maxHr": round(max_hr) if max_hr else None,
     }
 
 

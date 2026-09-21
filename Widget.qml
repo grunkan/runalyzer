@@ -88,6 +88,64 @@ Item {
     return count
   }
 
+  // Highest heart rate ever recorded, used to classify effort. Underestimates
+  // for a runner who never goes all out, hence the manual override.
+  readonly property int derivedHrMax: {
+    var m = 0
+    for (var i = 0; i < activities.length; i++) m = Math.max(m, activities[i].maxHr || 0)
+    return m
+  }
+
+  readonly property int effectiveHrMax: setting("hrMaxManual", false) ? hrMax : derivedHrMax
+
+  // A single run far longer than anything recent is the best-evidenced injury
+  // risk in the literature, so the ceiling is expressed as a planning number.
+  readonly property real longest30Km: {
+    var runs = runsBetween(isoDaysAgo(29), isoDaysAgo(0))
+    var longest = 0
+    for (var i = 0; i < runs.length; i++) longest = Math.max(longest, runs[i].distanceKm || 0)
+    return longest
+  }
+
+  readonly property real ceilingKm: longest30Km * 1.3
+
+  // Efficiency only compares like with like. Average heart rate alone lets
+  // interval sessions through, because warm-up and recovery drag the average
+  // down, so the peak has to stay low too.
+  function isEasyRun(a) {
+    if (!a.avgHr || !a.maxHr || effectiveHrMax <= 0) return false
+    if (a.avgHr > effectiveHrMax * 0.80) return false
+    if (a.maxHr > effectiveHrMax * 0.88) return false
+    if (!(a.distanceKm > 0) || !(a.durationSec > 0)) return false
+    return (a.elevationM || 0) / a.distanceKm < 10
+  }
+
+  function easyRunsIn(fromIso, toIso) {
+    var runs = runsBetween(fromIso, toIso)
+    var result = []
+    for (var i = 0; i < runs.length; i++) if (isEasyRun(runs[i])) result.push(runs[i])
+    return result
+  }
+
+  function meanEfficiency(runs) {
+    if (runs.length === 0) return 0
+    var total = 0
+    for (var i = 0; i < runs.length; i++)
+      total += (runs[i].distanceKm * 1000 / (runs[i].durationSec / 60)) / runs[i].avgHr
+    return total / runs.length
+  }
+
+  readonly property var easyRunsNow: easyRunsIn(isoDaysAgo(avgWeeks * 7 - 1), isoDaysAgo(0))
+  readonly property var easyRunsPrevious: easyRunsIn(isoDaysAgo(avgWeeks * 14 - 1), isoDaysAgo(avgWeeks * 7))
+  readonly property real efficiencyNow: meanEfficiency(easyRunsNow)
+  readonly property real efficiencyPrevious: meanEfficiency(easyRunsPrevious)
+
+  // Three runs is the point below which an average says more about which runs
+  // happened to qualify than about fitness.
+  readonly property bool hasEfficiency: easyRunsNow.length >= 3 && easyRunsPrevious.length >= 3
+  readonly property real efficiencyChangePercent: hasEfficiency && efficiencyPrevious > 0
+    ? (efficiencyNow - efficiencyPrevious) / efficiencyPrevious * 100 : 0
+
   property bool showSettingsPanel: false
 
   readonly property color mainColor: bar ? bar.foreground : "white"
@@ -100,6 +158,9 @@ Item {
   readonly property bool showTrendSection: root.connectedPanel && root.setting("show6w", true)
   readonly property bool showYearSection: root.connectedPanel && root.setting("showYear", true)
   readonly property bool showRecentSection: root.connectedPanel && root.setting("showRecent5", true)
+  readonly property bool showCeilingSection: root.connectedPanel && root.setting("showCeiling", true)
+    && root.longest30Km > 0
+  readonly property bool showEfficiencySection: root.connectedPanel && root.setting("showEfficiency", true)
 
   function pad(n) { return n < 10 ? "0" + n : "" + n }
 
@@ -177,11 +238,13 @@ Item {
   property int avgWeeks: 6
   property int recentCount: 5
   property int refreshMinutes: 15
+  property int hrMax: 185
 
   function syncSettingValues() {
     avgWeeks = settingInt("avgWeeks", 6, 2, 12)
     recentCount = settingInt("recentCount", 5, 3, 10)
     refreshMinutes = settingInt("refreshMinutes", 15, 5, 60)
+    hrMax = settingInt("hrMax", 185, 140, 220)
   }
 
   onSettingsChanged: syncSettingValues()
@@ -544,6 +607,40 @@ Item {
               onClicked: root.setToggle("showRecent5", !root.setting("showRecent5", true))
             }
 
+            Toggle {
+              width: parent.width
+              label: "Long run ceiling"
+              description: "Longest run of the last 30 days, and the distance above which a single run is a big jump"
+              checked: root.setting("showCeiling", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("showCeiling", !root.setting("showCeiling", true))
+            }
+
+            Toggle {
+              width: parent.width
+              label: "Efficiency trend"
+              description: "Metres per heartbeat on easy runs only, against the preceding period"
+              checked: root.setting("showEfficiency", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("showEfficiency", !root.setting("showEfficiency", true))
+            }
+
+            Toggle {
+              width: parent.width
+              label: "Set max heart rate manually"
+              description: root.setting("hrMaxManual", false)
+                ? "" : "Now using the highest recorded: " + root.derivedHrMax + " bpm"
+              checked: root.setting("hrMaxManual", false)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("hrMaxManual", !root.setting("hrMaxManual", false))
+            }
+
             PanelSeparator { foreground: root.mainColor }
 
             PanelSectionHeader {
@@ -593,6 +690,22 @@ Item {
               onModified: function(minutes) {
                 root.refreshMinutes = minutes
                 root.setNumber("refreshMinutes", minutes)
+              }
+            }
+
+            NumberField {
+              visible: root.setting("hrMaxManual", false)
+              label: "Max heart rate (" + from + "–" + to + " bpm)"
+              from: 140
+              to: 220
+              stepSize: 5
+              value: root.hrMax
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onModified: function(bpm) {
+                root.hrMax = bpm
+                root.setNumber("hrMax", bpm)
               }
             }
           }
@@ -878,6 +991,102 @@ Item {
             width: parent.width
             visible: root.showTrendSection && root.streakWeeks > 1
             text: root.streakWeeks + " weeks in a row with a run"
+            color: root.mutedColor
+            font.pixelSize: 10
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.showCeilingSection
+          }
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "Long run ceiling"
+            foreground: root.mainColor
+            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            visible: root.showCeilingSection
+          }
+
+          Row {
+            width: parent.width
+            spacing: 8
+            visible: root.showCeilingSection
+
+            Column {
+              width: (parent.width - 8) / 2
+              spacing: 2
+              Text { text: "30-day longest"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.longest30Km.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 8) / 2
+              spacing: 2
+              Text { text: "Caution above"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.ceilingKm.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.showEfficiencySection
+          }
+
+          Item {
+            width: parent.width
+            height: efficiencyHeader.implicitHeight
+            visible: root.showEfficiencySection
+
+            PanelSectionHeader {
+              id: efficiencyHeader
+              anchors.left: parent.left
+              text: "Efficiency (easy runs)"
+              foreground: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            }
+
+            Text {
+              anchors.right: parent.right
+              anchors.baseline: efficiencyHeader.baseline
+              visible: root.hasEfficiency
+              text: (root.efficiencyChangePercent >= 0 ? "▲ +" : "▼ ")
+                + root.efficiencyChangePercent.toFixed(1) + "% vs previous"
+              color: root.mutedColor
+              font.pixelSize: 10
+            }
+          }
+
+          Row {
+            width: parent.width
+            spacing: 8
+            visible: root.showEfficiencySection && root.hasEfficiency
+
+            Column {
+              width: (parent.width - 8) / 2
+              spacing: 2
+              Text { text: "Metres per beat"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.efficiencyNow.toFixed(2); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 8) / 2
+              spacing: 2
+              Text { text: "Easy runs used"; color: root.mutedColor; font.pixelSize: 10 }
+              Text {
+                text: root.easyRunsNow.length + " of " + root.runsBetween(root.isoDaysAgo(root.avgWeeks * 7 - 1), root.isoDaysAgo(0)).length
+                color: root.mainColor
+                font.pixelSize: 15
+                font.bold: true
+              }
+            }
+          }
+
+          Text {
+            width: parent.width
+            wrapMode: Text.Wrap
+            visible: root.showEfficiencySection && !root.hasEfficiency
+            text: "Not enough easy runs to compare yet."
             color: root.mutedColor
             font.pixelSize: 10
           }

@@ -2,11 +2,15 @@
   "schemaVersion": 1,
   "id": "grunkan.runalyzer",
   "name": "Runalyzer",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "author": "grunkan",
   "description": "Runalyzer shows your recent Strava running activities, weekly trends, and yearly totals in a bar popup.",
-  "kinds": ["bar-widget"],
-  "entryPoints": { "barWidget": "Widget.qml" },
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Widget.qml"
+  },
   "barWidget": {
     "displayName": "Runalyzer",
     "category": "Custom",
@@ -18,7 +22,11 @@
       "show7d": true,
       "show6w": true,
       "showYear": true,
-      "showRecent5": true
+      "showRecent5": true,
+      "showCeiling": true,
+      "showEfficiency": true,
+      "hrMaxManual": false,
+      "hrMax": 185
     },
     "schema": [
       {
@@ -45,10 +53,56 @@
         "min": 5,
         "max": 60
       },
-      { "key": "show7d", "type": "boolean", "label": "Show last 7 days", "default": true },
-      { "key": "show6w", "type": "boolean", "label": "Show weekly trend", "default": true },
-      { "key": "showYear", "type": "boolean", "label": "Show this year", "default": true },
-      { "key": "showRecent5", "type": "boolean", "label": "Show recent activities", "default": true }
+      {
+        "key": "show7d",
+        "type": "boolean",
+        "label": "Show last 7 days",
+        "default": true
+      },
+      {
+        "key": "show6w",
+        "type": "boolean",
+        "label": "Show weekly trend",
+        "default": true
+      },
+      {
+        "key": "showYear",
+        "type": "boolean",
+        "label": "Show this year",
+        "default": true
+      },
+      {
+        "key": "showRecent5",
+        "type": "boolean",
+        "label": "Show recent activities",
+        "default": true
+      },
+      {
+        "key": "hrMax",
+        "type": "number",
+        "label": "Max heart rate (140-220 bpm)",
+        "default": 185,
+        "min": 140,
+        "max": 220
+      },
+      {
+        "key": "showCeiling",
+        "type": "boolean",
+        "label": "Show long run ceiling",
+        "default": true
+      },
+      {
+        "key": "showEfficiency",
+        "type": "boolean",
+        "label": "Show efficiency trend",
+        "default": true
+      },
+      {
+        "key": "hrMaxManual",
+        "type": "boolean",
+        "label": "Set max heart rate manually",
+        "default": false
+      }
     ]
   }
 }

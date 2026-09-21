@@ -6,7 +6,7 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
-**Latest release:** [v0.4.2](https://github.com/grunkan/runalyzer/releases/tag/v0.4.2) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v0.5.0](https://github.com/grunkan/runalyzer/releases/tag/v0.5.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
@@ -18,6 +18,10 @@ bar.
   kilometres per week, and how the period compares to the one before it.
 - **This year** totals: runs, km, average km/week.
 - Your current streak of consecutive weeks with at least one run.
+- **Long run ceiling** — the longest run of the last 30 days, and the distance
+  above which a single run becomes a large jump.
+- **Efficiency trend** — metres covered per heartbeat on easy runs, compared
+  with the preceding period.
 - Toggle any of the four sections on/off, and choose how many weeks the trend
   covers and how many activities the list shows.
 
@@ -77,9 +81,31 @@ Click the gear icon in the popup to:
 - Set how many weeks the trend covers (2–12, default 6).
 - Set how many activities the list shows (3–10, default 5).
 - Set the auto-refresh interval in minutes (5–60, default 15).
+- Set your max heart rate manually, or let it be taken from the highest rate
+  recorded in your history.
 
 Settings are stored per widget in `~/.config/omarchy/shell.json` and survive
 reinstalling the plugin.
+
+## How the two training metrics work
+
+**Long run ceiling.** A large single run relative to recent training is the
+best-evidenced injury risk in the running literature: in a cohort of 5,205
+runners, a run 30–100% longer than the longest of the previous 30 days came
+with a markedly higher rate of overuse injury. The widget therefore shows that
+30-day longest run and the distance 30% above it, as a number to plan against.
+It is deliberately framed as a ceiling rather than a warning, and there is no
+weekly-percentage alarm — the familiar "10% per week" rule has never been
+validated.
+
+**Efficiency trend.** Metres covered per heartbeat, averaged over easy runs and
+compared with the preceding period of the same length. Rising efficiency on
+comparable runs suggests improving aerobic fitness. The comparison is only
+meaningful like-for-like, so a run counts as easy only when its average heart
+rate is at most 80% of maximum, its peak stays at or below 88% — which keeps
+interval sessions out, since warm-up and recovery pull their average down —
+and it climbs less than 10 m per km. The panel shows how many runs qualified,
+so a figure built on three runs is not mistaken for one built on fifteen.
 
 ## License
 
