@@ -144,6 +144,44 @@ Item {
   // happened to qualify than about fitness.
   readonly property bool hasEfficiency: easyRunsNow.length >= 3 && easyRunsPrevious.length >= 3
 
+  // Metres covered per step. Rising stride at the same heart rate is real
+  // progress; falling stride is fatigue. Strava stores cadence for one leg,
+  // hence the doubling. Compared over the same filtered runs as efficiency,
+  // since stride is only meaningful within a matched pace band.
+  function strideOf(a) {
+    return (a.distanceKm * 1000 / (a.durationSec / 60)) / (a.avgCadence * 2)
+  }
+
+  function runsWithCadence(runs) {
+    var result = []
+    for (var i = 0; i < runs.length; i++) if (runs[i].avgCadence > 0) result.push(runs[i])
+    return result
+  }
+
+  function meanStride(runs) {
+    if (runs.length === 0) return 0
+    var total = 0
+    for (var i = 0; i < runs.length; i++) total += strideOf(runs[i])
+    return total / runs.length
+  }
+
+  function meanCadence(runs) {
+    if (runs.length === 0) return 0
+    var total = 0
+    for (var i = 0; i < runs.length; i++) total += runs[i].avgCadence * 2
+    return total / runs.length
+  }
+
+  readonly property var strideRunsNow: runsWithCadence(easyRunsNow)
+  readonly property var strideRunsPrevious: runsWithCadence(easyRunsPrevious)
+  readonly property bool hasStride: strideRunsNow.length >= 3 && strideRunsPrevious.length >= 3
+  readonly property real strideNow: meanStride(strideRunsNow)
+  readonly property real cadenceNow: meanCadence(strideRunsNow)
+  readonly property real strideChangePercent: {
+    var before = meanStride(strideRunsPrevious)
+    return hasStride && before > 0 ? (strideNow - before) / before * 100 : 0
+  }
+
   // Strava's Relative Effort is weighted by time in heart rate zones, which is
   // a better measure of how hard a week was than kilometres are.
   function totalEffort(runs) {
@@ -181,6 +219,40 @@ Item {
     return count
   }
 
+  // Days since the most recent run, counted backwards over the same 28 days
+  // the load figures use. Catches both a long lay-off and hard sessions
+  // stacked on consecutive days.
+  readonly property var runDays28: {
+    var days = ({})
+    var runs = runsBetween(isoDaysAgo(27), isoDaysAgo(0))
+    for (var i = 0; i < runs.length; i++) {
+      var day = String(runs[i].date || "")
+      if (day.length !== 10) continue
+      if (!days[day] || !isEasyEffort(runs[i])) days[day] = { hard: !isEasyEffort(runs[i]) }
+    }
+    return days
+  }
+
+  readonly property int longestGapDays: {
+    var gap = 0
+    var longest = 0
+    for (var d = 27; d >= 0; d--) {
+      if (runDays28[isoDaysAgo(d)]) gap = 0
+      else longest = Math.max(longest, ++gap)
+    }
+    return longest
+  }
+
+  readonly property int backToBackHardDays: {
+    var count = 0
+    for (var d = 26; d >= 0; d--) {
+      var today = runDays28[isoDaysAgo(d)]
+      var before = runDays28[isoDaysAgo(d + 1)]
+      if (today && before && today.hard && before.hard) count++
+    }
+    return count
+  }
+
   readonly property bool hasIntensity: classifiableRuns28.length > 0
   readonly property int easySharePercent: hasIntensity
     ? Math.round(easyRuns28 / classifiableRuns28.length * 100) : 0
@@ -210,6 +282,8 @@ Item {
   readonly property bool showEfficiencySection: root.analysisVisible && root.setting("showEfficiency", true)
   readonly property bool showLoadSection: root.analysisVisible && root.setting("showLoad", true)
     && root.hasLoad
+  readonly property bool showStrideSection: root.analysisVisible && root.setting("showStride", true)
+  readonly property bool showSpacingSection: root.analysisVisible && root.setting("showSpacing", true)
 
   function pad(n) { return n < 10 ? "0" + n : "" + n }
 
@@ -670,6 +744,28 @@ Item {
               accent: root.mainColor
               fontFamily: root.bar ? root.bar.fontFamily : "monospace"
               onClicked: root.setToggle("showEfficiency", !root.setting("showEfficiency", true))
+            }
+
+            Toggle {
+              width: parent.width
+              label: "Stride & cadence"
+              description: "Metres per step on easy runs, which rises with genuine progress and falls with fatigue"
+              checked: root.setting("showStride", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("showStride", !root.setting("showStride", true))
+            }
+
+            Toggle {
+              width: parent.width
+              label: "Rest & spacing"
+              description: "Longest gap without running, and how often hard sessions land on consecutive days"
+              checked: root.setting("showSpacing", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("showSpacing", !root.setting("showSpacing", true))
             }
 
             Toggle {
@@ -1157,6 +1253,64 @@ Item {
 
           PanelSeparator {
             foreground: root.mainColor
+            visible: root.showStrideSection
+          }
+
+          Item {
+            width: parent.width
+            height: strideHeader.implicitHeight
+            visible: root.showStrideSection
+
+            PanelSectionHeader {
+              id: strideHeader
+              anchors.left: parent.left
+              text: "Stride & cadence (easy runs)"
+              foreground: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            }
+
+            Text {
+              anchors.right: parent.right
+              anchors.baseline: strideHeader.baseline
+              visible: root.hasStride
+              text: (root.strideChangePercent >= 0 ? "▲ +" : "▼ ")
+                + root.strideChangePercent.toFixed(1) + "% vs previous"
+              color: root.mutedColor
+              font.pixelSize: 10
+            }
+          }
+
+          Row {
+            width: parent.width
+            spacing: 8
+            visible: root.showStrideSection && root.hasStride
+
+            Column {
+              width: (parent.width - 8) / 2
+              spacing: 2
+              Text { text: "Metres per step"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.strideNow.toFixed(2); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 8) / 2
+              spacing: 2
+              Text { text: "Steps per minute"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: Math.round(root.cadenceNow); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+          }
+
+          Text {
+            width: parent.width
+            wrapMode: Text.Wrap
+            visible: root.showStrideSection && !root.hasStride
+            text: "Not enough easy runs with cadence to compare yet."
+            color: root.mutedColor
+            font.pixelSize: 10
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
             visible: root.showLoadSection
           }
 
@@ -1202,6 +1356,44 @@ Item {
                 font.pixelSize: 15
                 font.bold: true
               }
+            }
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.showSpacingSection
+          }
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "Rest & spacing"
+            foreground: root.mainColor
+            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            visible: root.showSpacingSection
+          }
+
+          Row {
+            width: parent.width
+            spacing: 8
+            visible: root.showSpacingSection
+
+            Column {
+              width: (parent.width - 8) / 2
+              spacing: 2
+              Text { text: "Longest gap"; color: root.mutedColor; font.pixelSize: 10 }
+              Text {
+                text: root.longestGapDays + (root.longestGapDays === 1 ? " day" : " days")
+                color: root.mainColor
+                font.pixelSize: 15
+                font.bold: true
+              }
+            }
+
+            Column {
+              width: (parent.width - 8) / 2
+              spacing: 2
+              Text { text: "Hard days in a row"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.backToBackHardDays; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1310,7 +1502,10 @@ Item {
                     text: card.modelData.distanceKm.toFixed(1) + " km  •  "
                       + root.formatDuration(card.modelData.durationSec) + "  •  "
                       + root.formatPace(card.modelData.durationSec, card.modelData.distanceKm) + "  •  "
-                      + card.modelData.elevationM + " m  •  "
+                      + card.modelData.elevationM + " m ("
+                    + (card.modelData.distanceKm > 0
+                       ? Math.round(card.modelData.elevationM / card.modelData.distanceKm) : 0)
+                    + "/km)  •  "
                       + (card.modelData.avgHr ? card.modelData.avgHr + " bpm" : "–")
                   }
                 }

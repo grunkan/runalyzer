@@ -6,7 +6,7 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
-**Latest release:** [v0.7.0](https://github.com/grunkan/runalyzer/releases/tag/v0.7.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v0.8.0](https://github.com/grunkan/runalyzer/releases/tag/v0.8.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
@@ -24,6 +24,10 @@ bar.
   with the preceding period.
 - **Load & intensity** — Relative Effort over the last 7 days against your
   4-week average, and the share of sessions kept easy.
+- **Stride & cadence** — metres covered per step on easy runs, against the
+  preceding period.
+- **Rest & spacing** — longest gap without running, and how often hard
+  sessions landed on consecutive days.
 - Toggle any of the four sections on/off, and choose how many weeks the trend
   covers and how many activities the list shows.
 
@@ -141,6 +145,33 @@ latter, which needs per-second data the widget does not fetch, and the two
 measures can differ by ten points or more for the same training. And sessions
 without heart rate are left out of both halves of the fraction rather than
 silently counted as easy.
+
+**Stride & cadence.** Stride length is speed divided by step rate. Rising
+stride at the same heart rate is genuine progress; falling stride is fatigue.
+It is averaged over exactly the same filtered easy runs as the efficiency
+figure, because stride is only meaningful compared within a matched pace band.
+Cadence is shown as a plain number rather than a trend, since cadence largely
+follows pace and a trend there would mostly be a pace trend. Strava reports
+running cadence for one leg, so the stored value is doubled before use.
+
+**Rest & spacing.** The longest run of consecutive days without running over
+the last 28 days, and how many times a harder session was followed by another
+harder session the next day. It catches the pattern of threshold on Tuesday
+and intervals on Wednesday, which no volume figure will show you.
+
+**On elevation.** Each activity shows its climb per kilometre next to the
+total, so a hilly run can be recognised as hilly rather than read as a bad
+run. There is deliberately no cumulative elevation panel: for road running it
+drives no decision, and the figure is noisy at the ±20% level between devices
+and elevation-correction methods. Grade-adjusted pace is not computed either,
+because the grade-to-pace relationship is nonlinear and asymmetric, and
+approximating it from a route's total gain alone biases the result.
+
+**On race predictions.** There are none, by choice. Strava's own predicted
+times are not available through its API, and computing them locally would mean
+one extra request per activity to read best efforts, plus caching. The
+estimates would also rest on training efforts that are rarely maximal, so they
+would need to be shown as wide ranges to be honest.
 
 ## License
 

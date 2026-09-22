@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "grunkan.runalyzer",
   "name": "Runalyzer",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": "grunkan",
   "description": "Runalyzer shows your recent Strava running activities, weekly trends, and yearly totals in a bar popup.",
   "kinds": [
@@ -27,7 +27,9 @@
       "showEfficiency": true,
       "hrMaxManual": false,
       "hrMax": 185,
-      "showLoad": true
+      "showLoad": true,
+      "showStride": true,
+      "showSpacing": true
     },
     "schema": [
       {
@@ -108,6 +110,18 @@
         "key": "showLoad",
         "type": "boolean",
         "label": "Show load & intensity",
+        "default": true
+      },
+      {
+        "key": "showStride",
+        "type": "boolean",
+        "label": "Show stride & cadence",
+        "default": true
+      },
+      {
+        "key": "showSpacing",
+        "type": "boolean",
+        "label": "Show rest & spacing",
         "default": true
       }
     ]

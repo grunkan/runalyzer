@@ -171,6 +171,10 @@ def map_activity(activity):
     # Relative Effort. Strava computes it from time in heart rate zones, which
     # we cannot reproduce from the list endpoint, so it is worth keeping.
     effort = activity.get("suffer_score")
+    # Strava reports running cadence for one leg, so this is half the steps
+    # per minute. The doubling is left to the widget, to keep what is stored
+    # identical to what the API gave.
+    cadence = activity.get("average_cadence")
     return {
         "id": activity.get("id"),
         "name": activity.get("name"),
@@ -182,6 +186,7 @@ def map_activity(activity):
         "avgHr": round(avg_hr) if avg_hr else None,
         "maxHr": round(max_hr) if max_hr else None,
         "relativeEffort": round(effort) if effort else None,
+        "avgCadence": cadence if cadence else None,
     }
 
 
