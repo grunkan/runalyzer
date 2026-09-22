@@ -6,7 +6,7 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
-**Latest release:** [v0.8.0](https://github.com/grunkan/runalyzer/releases/tag/v0.8.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v0.8.1](https://github.com/grunkan/runalyzer/releases/tag/v0.8.1) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
@@ -106,6 +106,10 @@ The popup is split into three tabs, chosen at the top:
 
 The chosen tab is remembered while the shell is running, and each section can
 still be switched off individually from Settings.
+
+Each heading on the Analysis tab carries a small ⓘ. Hovering the heading
+explains how that section's figures are worked out, including the window they
+cover and the filter they apply.
 
 ## How the training metrics work
 

@@ -264,6 +264,94 @@ Item {
   // and reopening the popup but resets when the shell restarts.
   property string activeTab: "summary"
 
+  // One heading shape for the whole Analysis tab: title, an info mark that
+  // reveals how the figures are worked out, and the optional right-aligned
+  // change badge that two of the sections carry.
+  component SectionHeading: Item {
+    id: heading
+
+    property string title
+    property string info
+    property string badge: ""
+    property bool showBadge: false
+
+    width: parent ? parent.width : 0
+    height: headingLabel.implicitHeight
+    // z orders siblings only, so without lifting the whole heading the rows
+    // that follow it in the column paint over the explanation.
+    z: headingHover.containsMouse ? 50 : 0
+
+    PanelSectionHeader {
+      id: headingLabel
+      anchors.left: parent.left
+      text: heading.title
+      foreground: root.mainColor
+      fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+    }
+
+    Text {
+      id: headingMark
+      anchors.left: headingLabel.right
+      anchors.leftMargin: 4
+      anchors.baseline: headingLabel.baseline
+      text: "ⓘ"
+      color: root.mutedColor
+      font.pixelSize: 11
+    }
+
+    MouseArea {
+      id: headingHover
+      anchors.left: headingLabel.left
+      anchors.right: headingMark.right
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+      hoverEnabled: true
+    }
+
+    Text {
+      anchors.right: parent.right
+      anchors.baseline: headingLabel.baseline
+      visible: heading.showBadge
+      text: heading.badge
+      color: root.mutedColor
+      font.pixelSize: 10
+    }
+
+    // Drawn inside the panel rather than as a ToolTip: Qt Quick Controls
+    // popups position themselves against the window origin, and the panel's
+    // window is full-screen, so a ToolTip lands in the corner of the display
+    // instead of under its heading.
+    Rectangle {
+      visible: headingHover.containsMouse
+      anchors.top: headingLabel.bottom
+      anchors.topMargin: 4
+      anchors.left: parent.left
+      width: parent.width
+      height: headingInfo.contentHeight + 12
+      radius: 4
+      // The bar's background is transparent, so its alpha has to be forced
+      // or the explanation renders unreadably over the panel content.
+      color: root.bar
+        ? Qt.rgba(root.bar.background.r, root.bar.background.g, root.bar.background.b, 1)
+        : "#222222"
+      border.width: 1
+      border.color: root.mutedColor
+      z: 50
+
+      Text {
+        id: headingInfo
+        x: 6
+        y: 6
+        width: parent.width - 12
+        wrapMode: Text.Wrap
+        text: heading.info
+        color: root.mainColor
+        font.pixelSize: 10
+        font.family: root.bar ? root.bar.fontFamily : "monospace"
+      }
+    }
+  }
+
   readonly property color mainColor: bar ? bar.foreground : "white"
   readonly property color mutedColor: bar ? Qt.rgba(bar.foreground.r, bar.foreground.g, bar.foreground.b, 0.55) : "#999999"
 
@@ -726,13 +814,13 @@ Item {
 
             Toggle {
               width: parent.width
-              label: "Long run ceiling"
-              description: "Longest run of the last 30 days, and the distance above which a single run is a big jump"
-              checked: root.setting("showCeiling", true)
+              label: "Load & intensity"
+              description: "Relative Effort over 7 days against your 4-week average, and the share of sessions kept easy"
+              checked: root.setting("showLoad", true)
               foreground: root.mainColor
               accent: root.mainColor
               fontFamily: root.bar ? root.bar.fontFamily : "monospace"
-              onClicked: root.setToggle("showCeiling", !root.setting("showCeiling", true))
+              onClicked: root.setToggle("showLoad", !root.setting("showLoad", true))
             }
 
             Toggle {
@@ -759,6 +847,17 @@ Item {
 
             Toggle {
               width: parent.width
+              label: "Long run ceiling"
+              description: "Longest run of the last 30 days, and the distance above which a single run is a big jump"
+              checked: root.setting("showCeiling", true)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("showCeiling", !root.setting("showCeiling", true))
+            }
+
+            Toggle {
+              width: parent.width
               label: "Rest & spacing"
               description: "Longest gap without running, and how often hard sessions land on consecutive days"
               checked: root.setting("showSpacing", true)
@@ -766,17 +865,6 @@ Item {
               accent: root.mainColor
               fontFamily: root.bar ? root.bar.fontFamily : "monospace"
               onClicked: root.setToggle("showSpacing", !root.setting("showSpacing", true))
-            }
-
-            Toggle {
-              width: parent.width
-              label: "Load & intensity"
-              description: "Relative Effort over 7 days against your 4-week average, and the share of sessions kept easy"
-              checked: root.setting("showLoad", true)
-              foreground: root.mainColor
-              accent: root.mainColor
-              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
-              onClicked: root.setToggle("showLoad", !root.setting("showLoad", true))
             }
 
             PanelSeparator { foreground: root.mainColor }
@@ -1157,34 +1245,39 @@ Item {
 
           PanelSeparator {
             foreground: root.mainColor
-            visible: root.showCeilingSection
+            visible: root.showLoadSection
           }
 
-          PanelSectionHeader {
-            width: parent.width
-            text: "Long run ceiling"
-            foreground: root.mainColor
-            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
-            visible: root.showCeilingSection
+          SectionHeading {
+            visible: root.showLoadSection
+            title: "Load & intensity"
+            info: "Relative Effort is Strava's own measure of how hard a session was, weighted by time spent in each heart rate zone. The first figure totals it over the last 7 days; the second compares that daily average against the last 28 days. The third is the share of those 28 days' sessions whose average heart rate stayed at or below 80% of maximum. It counts sessions rather than time in zones, which is a different measure from the 80/20 principle."
           }
 
           Row {
             width: parent.width
             spacing: 8
-            visible: root.showCeilingSection
+            visible: root.showLoadSection
 
             Column {
-              width: (parent.width - 8) / 2
+              width: (parent.width - 16) / 3
               spacing: 2
-              Text { text: "30-day longest"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.longest30Km.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { text: "7-day load"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: Math.round(root.load7); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
-              width: (parent.width - 8) / 2
+              width: (parent.width - 16) / 3
               spacing: 2
-              Text { text: "Caution above"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.ceilingKm.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { text: "vs 4-week avg"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: (root.loadChangePercent >= 0 ? "+" : "") + root.loadChangePercent.toFixed(0) + "%"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+            }
+
+            Column {
+              width: (parent.width - 16) / 3
+              spacing: 2
+              Text { text: "Easy sessions"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.hasIntensity ? root.easySharePercent + "%" : "–"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1193,28 +1286,13 @@ Item {
             visible: root.showEfficiencySection
           }
 
-          Item {
-            width: parent.width
-            height: efficiencyHeader.implicitHeight
+          SectionHeading {
             visible: root.showEfficiencySection
-
-            PanelSectionHeader {
-              id: efficiencyHeader
-              anchors.left: parent.left
-              text: "Efficiency (easy runs)"
-              foreground: root.mainColor
-              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
-            }
-
-            Text {
-              anchors.right: parent.right
-              anchors.baseline: efficiencyHeader.baseline
-              visible: root.hasEfficiency
-              text: (root.efficiencyChangePercent >= 0 ? "▲ +" : "▼ ")
-                + root.efficiencyChangePercent.toFixed(1) + "% vs previous"
-              color: root.mutedColor
-              font.pixelSize: 10
-            }
+            title: "Efficiency (easy runs)"
+            info: "Metres covered per heartbeat, averaged over easy runs and compared with the preceding period of the same length. Rising efficiency on comparable runs suggests improving aerobic fitness. A run counts as easy only if its average heart rate is at most 80% of maximum, its peak stays at or below 88%, and it climbs less than 10 m per km. The count shows how many qualified, since a figure from three runs is weaker than one from fifteen."
+            showBadge: root.hasEfficiency
+            badge: (root.efficiencyChangePercent >= 0 ? "▲ +" : "▼ ")
+              + root.efficiencyChangePercent.toFixed(1) + "% vs previous"
           }
 
           Row {
@@ -1233,12 +1311,7 @@ Item {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Easy runs used"; color: root.mutedColor; font.pixelSize: 10 }
-              Text {
-                text: root.easyRunsNow.length + " of " + root.runsBetween(root.isoDaysAgo(root.avgWeeks * 7 - 1), root.isoDaysAgo(0)).length
-                color: root.mainColor
-                font.pixelSize: 15
-                font.bold: true
-              }
+              Text { text: root.easyRunsNow.length + " of " + root.runsBetween(root.isoDaysAgo(root.avgWeeks * 7 - 1), root.isoDaysAgo(0)).length; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1256,28 +1329,13 @@ Item {
             visible: root.showStrideSection
           }
 
-          Item {
-            width: parent.width
-            height: strideHeader.implicitHeight
+          SectionHeading {
             visible: root.showStrideSection
-
-            PanelSectionHeader {
-              id: strideHeader
-              anchors.left: parent.left
-              text: "Stride & cadence (easy runs)"
-              foreground: root.mainColor
-              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
-            }
-
-            Text {
-              anchors.right: parent.right
-              anchors.baseline: strideHeader.baseline
-              visible: root.hasStride
-              text: (root.strideChangePercent >= 0 ? "▲ +" : "▼ ")
-                + root.strideChangePercent.toFixed(1) + "% vs previous"
-              color: root.mutedColor
-              font.pixelSize: 10
-            }
+            title: "Stride & cadence (easy runs)"
+            info: "Stride length is speed divided by step rate, averaged over the same easy runs as the efficiency figure. Rising stride at the same heart rate is genuine progress; falling stride is fatigue. Cadence is shown as a plain number because it largely follows pace, so a trend there would mostly be a pace trend. Strava records cadence for one leg, so the stored value is doubled."
+            showBadge: root.hasStride
+            badge: (root.strideChangePercent >= 0 ? "▲ +" : "▼ ")
+              + root.strideChangePercent.toFixed(1) + "% vs previous"
           }
 
           Row {
@@ -1311,51 +1369,32 @@ Item {
 
           PanelSeparator {
             foreground: root.mainColor
-            visible: root.showLoadSection
+            visible: root.showCeilingSection
           }
 
-          PanelSectionHeader {
-            width: parent.width
-            text: "Load & intensity"
-            foreground: root.mainColor
-            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
-            visible: root.showLoadSection
+          SectionHeading {
+            visible: root.showCeilingSection
+            title: "Long run ceiling"
+            info: "The longest single run of the last 30 days, and the distance 30% above it. A run far longer than anything recent is the best-evidenced injury risk in running research. It is meant as a number to plan against rather than a warning. There is deliberately no weekly-percentage alarm, because the familiar 10% per week rule has never been validated."
           }
 
           Row {
             width: parent.width
             spacing: 8
-            visible: root.showLoadSection
+            visible: root.showCeilingSection
 
             Column {
-              width: (parent.width - 16) / 3
+              width: (parent.width - 8) / 2
               spacing: 2
-              Text { text: "7-day load"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: Math.round(root.load7); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { text: "30-day longest"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.longest30Km.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
-              width: (parent.width - 16) / 3
+              width: (parent.width - 8) / 2
               spacing: 2
-              Text { text: "vs 4-week avg"; color: root.mutedColor; font.pixelSize: 10 }
-              Text {
-                text: (root.loadChangePercent >= 0 ? "+" : "") + root.loadChangePercent.toFixed(0) + "%"
-                color: root.mainColor
-                font.pixelSize: 15
-                font.bold: true
-              }
-            }
-
-            Column {
-              width: (parent.width - 16) / 3
-              spacing: 2
-              Text { text: "Easy sessions"; color: root.mutedColor; font.pixelSize: 10 }
-              Text {
-                text: root.hasIntensity ? root.easySharePercent + "%" : "–"
-                color: root.mainColor
-                font.pixelSize: 15
-                font.bold: true
-              }
+              Text { text: "Caution above"; color: root.mutedColor; font.pixelSize: 10 }
+              Text { text: root.ceilingKm.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1364,12 +1403,10 @@ Item {
             visible: root.showSpacingSection
           }
 
-          PanelSectionHeader {
-            width: parent.width
-            text: "Rest & spacing"
-            foreground: root.mainColor
-            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+          SectionHeading {
             visible: root.showSpacingSection
+            title: "Rest & spacing"
+            info: "The longest run of consecutive days without running over the last 28 days. Beside it, how many times a harder session was followed by another the next day. A session counts as harder when its average heart rate went above 80% of maximum. It catches the threshold-Tuesday, intervals-Wednesday pattern that no volume figure reveals."
           }
 
           Row {
@@ -1381,12 +1418,7 @@ Item {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Longest gap"; color: root.mutedColor; font.pixelSize: 10 }
-              Text {
-                text: root.longestGapDays + (root.longestGapDays === 1 ? " day" : " days")
-                color: root.mainColor
-                font.pixelSize: 15
-                font.bold: true
-              }
+              Text { text: root.longestGapDays + (root.longestGapDays === 1 ? " day" : " days"); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
@@ -1499,14 +1531,14 @@ Item {
                     wrapMode: Text.Wrap
                     color: root.mutedColor
                     font.pixelSize: 12
-                    text: card.modelData.distanceKm.toFixed(1) + " km  •  "
-                      + root.formatDuration(card.modelData.durationSec) + "  •  "
-                      + root.formatPace(card.modelData.durationSec, card.modelData.distanceKm) + "  •  "
-                      + card.modelData.elevationM + " m ("
-                    + (card.modelData.distanceKm > 0
-                       ? Math.round(card.modelData.elevationM / card.modelData.distanceKm) : 0)
-                    + "/km)  •  "
-                      + (card.modelData.avgHr ? card.modelData.avgHr + " bpm" : "–")
+                    text: card.modelData.distanceKm.toFixed(1) + "km • "
+                      + root.formatDuration(card.modelData.durationSec) + " • "
+                      + root.formatPace(card.modelData.durationSec, card.modelData.distanceKm) + " • "
+                      + card.modelData.elevationM + "m("
+                      + (card.modelData.distanceKm > 0
+                         ? Math.round(card.modelData.elevationM / card.modelData.distanceKm) : 0)
+                      + "m/km) • "
+                      + (card.modelData.avgHr ? card.modelData.avgHr + "bpm" : "–")
                   }
                 }
 
