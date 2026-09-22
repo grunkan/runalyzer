@@ -58,6 +58,20 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable grunkan.runalyzer
 ```
 
+## Removing it
+
+```sh
+omarchy plugin remove grunkan.runalyzer
+```
+
+That disables the widget and deletes the plugin directory. Your Strava
+credentials and the cached activity data live outside it, so clear them too if
+you want nothing left behind:
+
+```sh
+rm -rf ~/.local/state/omarchy/strava
+```
+
 ## Setup: connecting your Strava account
 
 Strava requires every app to use its own API credentials, so you'll need to
