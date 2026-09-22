@@ -111,20 +111,36 @@ class WriteStatusTest(unittest.TestCase):
         )
         self.assertEqual(record["activities"], [{"id": 1}])
 
-    def test_keeps_previous_activities_when_a_sync_fails(self):
+    def keep_previous(self, activities):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "status.json")
-            sync.write_status(path, True, None, "", [{"id": 7}], "2026-09-18T10:00:00Z")
+            sync.write_status(path, True, None, "", activities, "2026-09-18T10:00:00Z")
 
             previous = sync.load_previous_state(path)
             sync.write_keep_previous(path, "rate_limited", "Slow down.", previous)
 
             with open(path) as handle:
-                record = json.load(handle)
+                return json.load(handle)
 
-        self.assertEqual(record["activities"], [{"id": 7}])
+    def test_keeps_recent_activities_when_a_sync_fails(self):
+        recent = {"id": 7, "date": datetime.now().date().isoformat()}
+        record = self.keep_previous([recent])
+
+        self.assertEqual(record["activities"], [recent])
         self.assertEqual(record["updatedAt"], "2026-09-18T10:00:00Z")
         self.assertEqual(record["error"], "rate_limited")
+
+    def test_drops_activities_past_the_cache_limit_when_a_sync_fails(self):
+        # Strava's API policy forbids holding their data longer than seven
+        # days, and a run of failed syncs must not quietly keep it alive.
+        today = datetime.now().date()
+        inside = {"id": 1, "date": (today - timedelta(days=6)).isoformat()}
+        outside = {"id": 2, "date": (today - timedelta(days=7)).isoformat()}
+        undated = {"id": 3}
+
+        record = self.keep_previous([inside, outside, undated])
+
+        self.assertEqual(record["activities"], [inside])
 
 
 if __name__ == "__main__":

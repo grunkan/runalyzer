@@ -8,7 +8,6 @@ Item {
   id: root
 
   property var bar
-  property string moduleName
   property var settings
 
   property bool popupOpen: false
@@ -317,10 +316,11 @@ Item {
       font.pixelSize: 10
     }
 
-    // Drawn inside the panel rather than as a ToolTip: Qt Quick Controls
-    // popups position themselves against the window origin, and the panel's
-    // window is full-screen, so a ToolTip lands in the corner of the display
-    // instead of under its heading.
+    // Drawn inside the panel rather than as a PanelToolTip. That component is
+    // fine as it stands — the short tooltips elsewhere in this file use it —
+    // but it neither wraps nor bounds its width, and giving it an explicit
+    // size to hold several sentences left it positioning against the window
+    // origin instead of the heading.
     Rectangle {
       visible: headingHover.containsMouse
       anchors.top: headingLabel.bottom
@@ -486,7 +486,6 @@ Item {
   }
 
   FileView {
-    id: statusFile
     path: root.statusFilePath
     watchChanges: true
     printErrors: false
@@ -496,7 +495,6 @@ Item {
   }
 
   FileView {
-    id: authFile
     path: root.authFilePath
     watchChanges: true
     printErrors: false
@@ -702,7 +700,6 @@ Item {
             }
 
             Rectangle {
-              id: refreshButton
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               width: 22
@@ -1038,7 +1035,6 @@ Item {
             }
 
             Rectangle {
-              id: connectButton
               width: 90
               height: 28
               radius: 6
@@ -1565,7 +1561,6 @@ Item {
             visible: root.dataTabVisible
 
             Rectangle {
-              id: stravaButton
               width: 90
               height: 28
               radius: 6
@@ -1589,7 +1584,6 @@ Item {
             }
 
             Rectangle {
-              id: closeButton
               width: 90
               height: 28
               radius: 6

@@ -4,9 +4,10 @@ A bar widget for [Omarchy](https://omarchy.org) that shows your recent Strava
 running activities, weekly trends, and yearly totals — right in your status
 bar.
 
-![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
+![Runalyzer Summary tab: last 7 days, weekly trend with chart, this year, and recent runs](assets/screenshot.jpg)
+![Runalyzer Analysis tab: load and intensity, efficiency, stride and cadence, long run ceiling, rest and spacing](assets/screenshot-analysis.jpg)
 
-**Latest release:** [v0.8.1](https://github.com/grunkan/runalyzer/releases/tag/v0.8.1) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v1.0.0](https://github.com/grunkan/runalyzer/releases/tag/v1.0.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
@@ -28,8 +29,8 @@ bar.
   preceding period.
 - **Rest & spacing** — longest gap without running, and how often hard
   sessions landed on consecutive days.
-- Toggle any of the four sections on/off, and choose how many weeks the trend
-  covers and how many activities the list shows.
+- Switch any section off, and choose how many weeks the trend covers and how
+  many activities the list shows.
 
 All time windows are rolling: "last 7 days" is today plus the six days before
 it, and a trend of N weeks is today plus the preceding N×7−1 days. Changing a
@@ -78,12 +79,29 @@ Your credentials and tokens are stored locally in
 `~/.local/state/omarchy/strava/auth.json` (file permissions `600`) and are
 only ever sent directly to Strava's own API — nowhere else.
 
+## Tabs
+
+The popup is split into three tabs, chosen at the top:
+
+- **Summary** — last 7 days, the weekly trend with its chart, this year, and
+  your latest runs.
+- **Analysis** — load and intensity, the efficiency trend, stride and cadence,
+  the long run ceiling, and rest and spacing.
+- **Settings** — which sections appear, how many weeks and activities to
+  cover, the refresh interval, and max heart rate.
+
+The chosen tab is remembered while the shell is running, and every section can
+still be switched off individually from Settings.
+
+Each heading on the Analysis tab carries a small ⓘ. Hovering the heading
+explains how that section's figures are worked out, including the window it
+covers and the filter it applies.
+
 ## Configuration
 
-Click the gear icon in the popup to:
+Open the **Settings** tab to:
 
-- Toggle which of the four sections (Last 7 days / Weekly trend / This year /
-  Recent activities) are shown.
+- Choose which sections appear, grouped to match the Summary and Analysis tabs.
 - Set how many weeks the trend covers (2–12, default 6).
 - Set how many activities the list shows (3–10, default 5).
 - Set the auto-refresh interval in minutes (5–60, default 15).
@@ -92,24 +110,6 @@ Click the gear icon in the popup to:
 
 Settings are stored per widget in `~/.config/omarchy/shell.json` and survive
 reinstalling the plugin.
-
-## Tabs
-
-The popup is split into three tabs, chosen at the top:
-
-- **Summary** — last 7 days, the weekly trend with its chart, this year, and
-  your latest runs.
-- **Analysis** — the long run ceiling, the efficiency trend, and load and
-  intensity.
-- **Settings** — which sections appear, how many weeks and activities to
-  cover, the refresh interval, and max heart rate.
-
-The chosen tab is remembered while the shell is running, and each section can
-still be switched off individually from Settings.
-
-Each heading on the Analysis tab carries a small ⓘ. Hovering the heading
-explains how that section's figures are worked out, including the window they
-cover and the filter they apply.
 
 ## How the training metrics work
 
@@ -176,6 +176,21 @@ times are not available through its API, and computing them locally would mean
 one extra request per activity to read best efforts, plus caching. The
 estimates would also rest on training efforts that are rarely maximal, so they
 would need to be shown as wide ranges to be honest.
+
+## Your data
+
+The plugin ships no Strava credentials of its own. You register your own free
+Strava API application and paste its Client ID and Secret into the widget,
+which then holds them, and the tokens it exchanges them for, in
+`~/.local/state/omarchy/strava/auth.json` with file permissions `600`.
+
+Activity data is written to `status.json` in the same directory. Every sync
+re-fetches the whole window and rewrites that file in full, so nothing is kept
+beyond your refresh interval; if a sync fails, anything older than seven days
+is dropped rather than carried forward. Access is read-only, data is shown
+only to you, and nothing is sent anywhere except to Strava's own API.
+
+Runalyzer is not affiliated with, endorsed by, or sponsored by Strava.
 
 ## License
 

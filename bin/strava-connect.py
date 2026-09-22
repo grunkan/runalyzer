@@ -15,6 +15,7 @@ import http.server
 import json
 import os
 import secrets
+import socket
 import sys
 import tempfile
 import time
@@ -91,10 +92,32 @@ def _make_handler(result, expected_state):
     return CallbackHandler
 
 
+class _LocalhostServer(http.server.HTTPServer):
+    # The redirect Strava sends the browser to says "localhost", which may
+    # resolve to ::1 before 127.0.0.1. Binding only the IPv4 loopback would
+    # then leave the browser unable to reach us at all.
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        http.server.HTTPServer.server_bind(self)
+
+
+def _listen(port, handler):
+    try:
+        return _LocalhostServer(("::1", port), handler)
+    except OSError:
+        # No usable IPv6 loopback on this host.
+        return http.server.HTTPServer(("127.0.0.1", port), handler)
+
+
 def run_oauth_listener(port, timeout, expected_state):
     result = _CallbackResult()
     handler = _make_handler(result, expected_state)
-    httpd = http.server.HTTPServer(("127.0.0.1", port), handler)
+    try:
+        httpd = _listen(port, handler)
+    except OSError as err:
+        return None, "port_busy: %s" % err
     deadline = time.time() + timeout
     while result.code is None and result.error is None:
         remaining = deadline - time.time()
@@ -172,6 +195,11 @@ def main():
     open_browser(authorize_url)
 
     code, error = run_oauth_listener(args.port, args.timeout, state)
+    if error and error.startswith("port_busy"):
+        print("Port %d is already in use, so the Strava login could not be "
+              "received. Close whatever is using it, or pass --port."
+              % args.port, file=sys.stderr)
+        return 1
     if error == "timeout":
         print("No login within the time limit", file=sys.stderr)
         return 1

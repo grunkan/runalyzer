@@ -101,11 +101,25 @@ def load_previous_state(status_path):
     }
 
 
+# Strava's API policy forbids retaining their data in a cache for more than
+# seven days. A normal sync re-fetches the whole window and rewrites the file,
+# so nothing is ever held longer than the refresh interval. This path is the
+# exception: it carries yesterday's data forward when a sync fails, so it has
+# to drop anything that has aged out.
+CACHE_RETENTION_DAYS = 7
+
+
+def within_retention(activity, today=None):
+    day = (activity or {}).get("date") or ""
+    if len(day) != 10:
+        return False
+    cutoff = (today or datetime.now().date()) - timedelta(days=CACHE_RETENTION_DAYS - 1)
+    return day >= cutoff.isoformat()
+
+
 def write_keep_previous(status_path, error, help_text, previous_state):
-    write_status(
-        status_path, True, error, help_text,
-        previous_state["activities"], previous_state["updatedAt"],
-    )
+    kept = [a for a in previous_state["activities"] if within_retention(a)]
+    write_status(status_path, True, error, help_text, kept, previous_state["updatedAt"])
 
 
 def write_auth_expired(status_path):
