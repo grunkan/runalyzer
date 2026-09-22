@@ -209,3 +209,9 @@ Runalyzer is not affiliated with, endorsed by, or sponsored by Strava.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+The app icon in `assets/icon.png` is
+[`person-running`](https://fontawesome.com/icons/person-running) from
+[Font Awesome Free](https://fontawesome.com) 6, © Fonticons, Inc., licensed
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), rendered from
+[Nerd Fonts](https://www.nerdfonts.com) (U+EF0C). Everything else is MIT.
