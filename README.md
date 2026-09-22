@@ -6,7 +6,7 @@ bar.
 
 ![Runalyzer popup showing recent runs and weekly/yearly stats](assets/screenshot.jpg)
 
-**Latest release:** [v0.6.0](https://github.com/grunkan/runalyzer/releases/tag/v0.6.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
+**Latest release:** [v0.7.0](https://github.com/grunkan/runalyzer/releases/tag/v0.7.0) — see all [releases](https://github.com/grunkan/runalyzer/releases) for the changelog.
 
 ## Features
 
@@ -89,7 +89,21 @@ Click the gear icon in the popup to:
 Settings are stored per widget in `~/.config/omarchy/shell.json` and survive
 reinstalling the plugin.
 
-## How the two training metrics work
+## Tabs
+
+The popup is split into three tabs, chosen at the top:
+
+- **Summary** — last 7 days, the weekly trend with its chart, this year, and
+  your latest runs.
+- **Analysis** — the long run ceiling, the efficiency trend, and load and
+  intensity.
+- **Settings** — which sections appear, how many weeks and activities to
+  cover, the refresh interval, and max heart rate.
+
+The chosen tab is remembered while the shell is running, and each section can
+still be switched off individually from Settings.
+
+## How the training metrics work
 
 **Long run ceiling.** A large single run relative to recent training is the
 best-evidenced injury risk in the running literature: in a cohort of 5,205

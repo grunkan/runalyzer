@@ -187,22 +187,28 @@ Item {
   readonly property real efficiencyChangePercent: hasEfficiency && efficiencyPrevious > 0
     ? (efficiencyNow - efficiencyPrevious) / efficiencyPrevious * 100 : 0
 
-  property bool showSettingsPanel: false
+  // Which tab the popup is showing. Deliberately a plain property rather than
+  // a saved setting: it is transient interface state, so it survives closing
+  // and reopening the popup but resets when the shell restarts.
+  property string activeTab: "summary"
 
   readonly property color mainColor: bar ? bar.foreground : "white"
   readonly property color mutedColor: bar ? Qt.rgba(bar.foreground.r, bar.foreground.g, bar.foreground.b, 0.55) : "#999999"
 
-  readonly property bool panelBaseVisible: !root.showSettingsPanel
-  readonly property bool connectedPanel: root.syncStatus.connected === true && root.panelBaseVisible
-  readonly property bool disconnectedPanel: root.syncStatus.connected !== true && root.panelBaseVisible
-  readonly property bool show7dSection: root.connectedPanel && root.setting("show7d", true)
-  readonly property bool showTrendSection: root.connectedPanel && root.setting("show6w", true)
-  readonly property bool showYearSection: root.connectedPanel && root.setting("showYear", true)
-  readonly property bool showRecentSection: root.connectedPanel && root.setting("showRecent5", true)
-  readonly property bool showCeilingSection: root.connectedPanel && root.setting("showCeiling", true)
+  readonly property bool summaryVisible: root.syncStatus.connected === true && root.activeTab === "summary"
+  readonly property bool analysisVisible: root.syncStatus.connected === true && root.activeTab === "analysis"
+  readonly property bool settingsVisible: root.activeTab === "settings"
+  readonly property bool dataTabVisible: root.summaryVisible || root.analysisVisible
+  readonly property bool disconnectedPanel: root.syncStatus.connected !== true && root.activeTab !== "settings"
+
+  readonly property bool show7dSection: root.summaryVisible && root.setting("show7d", true)
+  readonly property bool showTrendSection: root.summaryVisible && root.setting("show6w", true)
+  readonly property bool showYearSection: root.summaryVisible && root.setting("showYear", true)
+  readonly property bool showRecentSection: root.summaryVisible && root.setting("showRecent5", true)
+  readonly property bool showCeilingSection: root.analysisVisible && root.setting("showCeiling", true)
     && root.longest30Km > 0
-  readonly property bool showEfficiencySection: root.connectedPanel && root.setting("showEfficiency", true)
-  readonly property bool showLoadSection: root.connectedPanel && root.setting("showLoad", true)
+  readonly property bool showEfficiencySection: root.analysisVisible && root.setting("showEfficiency", true)
+  readonly property bool showLoadSection: root.analysisVisible && root.setting("showLoad", true)
     && root.hasLoad
 
   function pad(n) { return n < 10 ? "0" + n : "" + n }
@@ -564,48 +570,35 @@ Item {
               }
             }
 
-            Rectangle {
-              id: settingsButton
-              anchors.right: refreshButton.left
-              anchors.rightMargin: 4
-              anchors.verticalCenter: parent.verticalCenter
-              width: 22
-              height: 22
-              radius: 5
-              color: settingsArea.containsMouse || root.showSettingsPanel ? root.mutedColor : "transparent"
-
-              Text {
-                anchors.centerIn: parent
-                text: "⚙"
-                color: root.mainColor
-                font.pixelSize: 14
-              }
-
-              MouseArea {
-                id: settingsArea
-                anchors.fill: parent
-                hoverEnabled: true
-                onClicked: root.showSettingsPanel = !root.showSettingsPanel
-              }
-
-              PanelToolTip {
-                visible: settingsArea.containsMouse
-                text: "Settings"
-                fontFamily: root.bar ? root.bar.fontFamily : "monospace"
-              }
-            }
           }
 
-          PanelSeparator { foreground: root.mainColor }
+          ButtonGroup {
+            anchors.horizontalCenter: parent.horizontalCenter
+            focusable: false
+            options: [{ value: "summary", label: "Summary" },
+                      { value: "analysis", label: "Analysis" },
+                      { value: "settings", label: "Settings" }]
+            value: root.activeTab
+            foreground: root.mainColor
+            background: root.bar ? root.bar.background : "#222222"
+            accent: root.mainColor
+            fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            onChanged: function(tab) { root.activeTab = tab }
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.settingsVisible
+          }
 
           Column {
             width: parent.width
             spacing: 8
-            visible: root.showSettingsPanel
+            visible: root.settingsVisible
 
             PanelSectionHeader {
               width: parent.width
-              text: "Sections"
+              text: "Summary sections"
               foreground: root.mainColor
               fontFamily: root.bar ? root.bar.fontFamily : "monospace"
             }
@@ -650,6 +643,13 @@ Item {
               onClicked: root.setToggle("showRecent5", !root.setting("showRecent5", true))
             }
 
+            PanelSectionHeader {
+              width: parent.width
+              text: "Analysis sections"
+              foreground: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+            }
+
             Toggle {
               width: parent.width
               label: "Long run ceiling"
@@ -681,18 +681,6 @@ Item {
               accent: root.mainColor
               fontFamily: root.bar ? root.bar.fontFamily : "monospace"
               onClicked: root.setToggle("showLoad", !root.setting("showLoad", true))
-            }
-
-            Toggle {
-              width: parent.width
-              label: "Set max heart rate manually"
-              description: root.setting("hrMaxManual", false)
-                ? "" : "Now using the highest recorded: " + root.derivedHrMax + " bpm"
-              checked: root.setting("hrMaxManual", false)
-              foreground: root.mainColor
-              accent: root.mainColor
-              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
-              onClicked: root.setToggle("hrMaxManual", !root.setting("hrMaxManual", false))
             }
 
             PanelSeparator { foreground: root.mainColor }
@@ -747,6 +735,18 @@ Item {
               }
             }
 
+            Toggle {
+              width: parent.width
+              label: "Set max heart rate manually"
+              description: root.setting("hrMaxManual", false)
+                ? "" : "Now using the highest recorded: " + root.derivedHrMax + " bpm"
+              checked: root.setting("hrMaxManual", false)
+              foreground: root.mainColor
+              accent: root.mainColor
+              fontFamily: root.bar ? root.bar.fontFamily : "monospace"
+              onClicked: root.setToggle("hrMaxManual", !root.setting("hrMaxManual", false))
+            }
+
             NumberField {
               visible: root.setting("hrMaxManual", false)
               label: "Max heart rate (" + from + "–" + to + " bpm)"
@@ -762,6 +762,11 @@ Item {
                 root.setNumber("hrMax", bpm)
               }
             }
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.disconnectedPanel
           }
 
           Column {
@@ -881,6 +886,11 @@ Item {
               color: root.mutedColor
               font.pixelSize: 10
             }
+          }
+
+          PanelSeparator {
+            foreground: root.mainColor
+            visible: root.show7dSection
           }
 
           PanelSectionHeader {
@@ -1237,11 +1247,11 @@ Item {
 
           PanelSeparator {
             foreground: root.mainColor
-            visible: root.connectedPanel
+            visible: root.dataTabVisible
           }
 
           Text {
-            visible: root.connectedPanel && !!root.syncStatus.error
+            visible: root.dataTabVisible && !!root.syncStatus.error
             width: parent.width
             wrapMode: Text.Wrap
             text: root.syncStatus.authHelpText
@@ -1325,7 +1335,7 @@ Item {
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 8
-            visible: root.panelBaseVisible
+            visible: root.dataTabVisible
 
             Rectangle {
               id: stravaButton
