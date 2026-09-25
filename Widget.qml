@@ -308,6 +308,7 @@ Item {
     }
 
     Text {
+      textFormat: Text.PlainText
       anchors.right: parent.right
       anchors.baseline: headingLabel.baseline
       visible: heading.showBadge
@@ -339,6 +340,7 @@ Item {
       z: 50
 
       Text {
+        textFormat: Text.PlainText
         id: headingInfo
         x: 6
         y: 6
@@ -468,6 +470,7 @@ Item {
   property string connectClientIdDefault: ""
   property bool connecting: false
   property string connectMessage: ""
+  property bool connectTimedOut: false
 
   function applyStatus(raw) {
     try {
@@ -512,11 +515,30 @@ Item {
     id: syncProcess
     running: false
     command: []
-    stdout: StdioCollector { id: syncStdout; waitForEnd: true }
+    stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector { id: syncStderr; waitForEnd: true }
     onExited: function(exitCode) {
+      syncKillTimer.stop()
       if (exitCode !== 0) console.warn("runalyzer", "sync failed", syncStderr.text)
     }
+  }
+
+  // The script stops itself after 90 s. This is the backstop for a process
+  // stuck somewhere the script cannot interrupt: refresh() starts no new sync
+  // while one is still running, so a hung one would otherwise block them all.
+  Timer {
+    interval: 120 * 1000
+    running: syncProcess.running
+    onTriggered: {
+      syncProcess.signal(15)
+      syncKillTimer.start()
+    }
+  }
+
+  Timer {
+    id: syncKillTimer
+    interval: 5000
+    onTriggered: if (syncProcess.running) syncProcess.signal(9)
   }
 
   Timer {
@@ -578,6 +600,7 @@ Item {
       return
     }
     root.connecting = true
+    root.connectTimedOut = false
     root.connectMessage = "Opening browser for Strava login…"
     connectProcess.pendingSecret = clientSecret
     connectProcess.command = ["python3", root.pluginDir + "bin/strava-connect.py", "--client-id", clientId]
@@ -590,22 +613,43 @@ Item {
     command: []
     stdinEnabled: true
     property string pendingSecret: ""
-    stdout: StdioCollector { id: connectStdout; waitForEnd: true }
+    stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector { id: connectStderr; waitForEnd: true }
     onStarted: {
       write(pendingSecret + "\n")
       pendingSecret = ""
     }
     onExited: function(exitCode) {
+      connectKillTimer.stop()
       root.connecting = false
       if (exitCode === 0) {
         root.connectMessage = ""
         root.refresh()
       } else {
-        root.connectMessage = String(connectStderr.text || "Connection failed").trim()
+        root.connectMessage = root.connectTimedOut
+          ? "Connecting to Strava took too long"
+          : String(connectStderr.text || "Connection failed").trim()
         connectMessageTimer.restart()
       }
     }
+  }
+
+  // The connect script gives up after 150 s on its own; this backstop keeps a
+  // stuck one from leaving the Connect button disabled for good.
+  Timer {
+    interval: 180 * 1000
+    running: connectProcess.running
+    onTriggered: {
+      root.connectTimedOut = true
+      connectProcess.signal(15)
+      connectKillTimer.start()
+    }
+  }
+
+  Timer {
+    id: connectKillTimer
+    interval: 5000
+    onTriggered: if (connectProcess.running) connectProcess.signal(9)
   }
 
   implicitWidth: 28
@@ -965,6 +1009,7 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               wrapMode: Text.Wrap
               text: root.syncStatus.authHelpText || "Connect your Strava account to see your latest runs."
@@ -1043,6 +1088,7 @@ Item {
               border.color: root.mutedColor
 
               Text {
+                textFormat: Text.PlainText
                 anchors.centerIn: parent
                 text: root.connecting ? "…" : "Connect"
                 color: root.mainColor
@@ -1059,6 +1105,7 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               visible: root.connectMessage !== ""
               width: parent.width
               wrapMode: Text.Wrap
@@ -1090,28 +1137,28 @@ Item {
               width: (parent.width - 24) / 4
               spacing: 2
               Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summary.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summary.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 24) / 4
               spacing: 2
               Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summary.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summary.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 24) / 4
               spacing: 2
               Text { text: "Time"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.formatDuration(root.summary.durationSec); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.formatDuration(root.summary.durationSec); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 24) / 4
               spacing: 2
               Text { text: "Elev."; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summary.elevationM + " m"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summary.elevationM + " m"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1134,6 +1181,7 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               anchors.right: parent.right
               anchors.baseline: trendHeader.baseline
               visible: root.hasTrendComparison
@@ -1153,21 +1201,21 @@ Item {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summaryWeeks.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summaryWeeks.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summaryWeeks.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summaryWeeks.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "Avg km/wk"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summaryWeeks.avgKmPerWeek.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summaryWeeks.avgKmPerWeek.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1206,6 +1254,7 @@ Item {
                 // Sibling of the bar rather than a child: children inherit the
                 // 0.55 opacity above, which would wash the numbers out.
                 Text {
+                  textFormat: Text.PlainText
                   anchors.horizontalCenter: barFill.horizontalCenter
                   anchors.bottom: barFill.bottom
                   anchors.bottomMargin: 2
@@ -1232,6 +1281,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width
             visible: root.showTrendSection && root.streakWeeks > 1
             text: root.streakWeeks + " weeks in a row with a run"
@@ -1259,21 +1309,21 @@ Item {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "7-day load"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: Math.round(root.load7); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: Math.round(root.load7); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "vs 4-week avg"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: (root.loadChangePercent >= 0 ? "+" : "") + root.loadChangePercent.toFixed(0) + "%"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: (root.loadChangePercent >= 0 ? "+" : "") + root.loadChangePercent.toFixed(0) + "%"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "Easy sessions"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.hasIntensity ? root.easySharePercent + "%" : "–"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.hasIntensity ? root.easySharePercent + "%" : "–"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1300,14 +1350,14 @@ Item {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Metres per beat"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.efficiencyNow.toFixed(2); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.efficiencyNow.toFixed(2); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Easy runs used"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.easyRunsNow.length + " of " + root.runsBetween(root.isoDaysAgo(root.avgWeeks * 7 - 1), root.isoDaysAgo(0)).length; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.easyRunsNow.length + " of " + root.runsBetween(root.isoDaysAgo(root.avgWeeks * 7 - 1), root.isoDaysAgo(0)).length; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1343,14 +1393,14 @@ Item {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Metres per step"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.strideNow.toFixed(2); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.strideNow.toFixed(2); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Steps per minute"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: Math.round(root.cadenceNow); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: Math.round(root.cadenceNow); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1383,14 +1433,14 @@ Item {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "30-day longest"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.longest30Km.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.longest30Km.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Caution above"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.ceilingKm.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.ceilingKm.toFixed(1) + " km"; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1414,14 +1464,14 @@ Item {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Longest gap"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.longestGapDays + (root.longestGapDays === 1 ? " day" : " days"); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.longestGapDays + (root.longestGapDays === 1 ? " day" : " days"); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 8) / 2
               spacing: 2
               Text { text: "Hard days in a row"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.backToBackHardDays; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.backToBackHardDays; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1447,21 +1497,21 @@ Item {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "Runs"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summaryYear.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summaryYear.count; color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "Km"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summaryYear.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summaryYear.distanceKm.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
 
             Column {
               width: (parent.width - 16) / 3
               spacing: 2
               Text { text: "Avg km/wk"; color: root.mutedColor; font.pixelSize: 10 }
-              Text { text: root.summaryYear.avgKmPerWeek.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
+              Text { textFormat: Text.PlainText; text: root.summaryYear.avgKmPerWeek.toFixed(1); color: root.mainColor; font.pixelSize: 15; font.bold: true }
             }
           }
 
@@ -1471,6 +1521,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: root.dataTabVisible && !!root.syncStatus.error
             width: parent.width
             wrapMode: Text.Wrap
@@ -1523,6 +1574,7 @@ Item {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     wrapMode: Text.Wrap
                     color: root.mutedColor

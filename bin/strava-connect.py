@@ -15,6 +15,7 @@ import http.server
 import json
 import os
 import secrets
+import signal
 import socket
 import sys
 import tempfile
@@ -58,9 +59,27 @@ class _CallbackResult:
     error = None
 
 
+CALLBACK_READ_TIMEOUT_SEC = 10
+
+
 def _make_handler(result, expected_state):
     class CallbackHandler(http.server.BaseHTTPRequestHandler):
+        # Without this, a connection that never sends a request blocks the
+        # single-threaded listener past its own deadline.
+        timeout = CALLBACK_READ_TIMEOUT_SEC
+
+        def _host_is_loopback(self):
+            # Binding to loopback does not stop a web page reaching us through
+            # DNS rebinding, but such a request still carries the page's own
+            # host name, so anything not naming loopback is refused.
+            port = self.server.server_address[1]
+            allowed = {"localhost:%d" % port, "127.0.0.1:%d" % port, "[::1]:%d" % port}
+            return (self.headers.get("Host") or "").lower() in allowed
+
         def do_GET(self):
+            if not self._host_is_loopback():
+                self.send_error(403)
+                return
             parsed = urllib.parse.urlsplit(self.path)
             params = urllib.parse.parse_qs(parsed.query)
             state = (params.get("state") or [""])[0]
@@ -131,6 +150,58 @@ def run_oauth_listener(port, timeout, expected_state):
     return result.code, result.error
 
 
+# Covers the whole connect run: the login window plus the token exchange. A
+# socket timeout only bounds each read, so a slow trickle of headers or body
+# could otherwise hold the process open indefinitely.
+EXCHANGE_DEADLINE_SEC = 30
+
+MAX_MESSAGE_CHARS = 300
+
+
+class DeadlineExceeded(BaseException):
+    pass
+
+
+def _deadline_reached(signum, frame):
+    raise DeadlineExceeded()
+
+
+class alarm_deferred:
+    """Holds SIGALRM back while the new credentials are written."""
+
+    def __enter__(self):
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+
+    def __exit__(self, *exc):
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
+        return False
+
+
+def report(message):
+    print(str(message)[:MAX_MESSAGE_CHARS], file=sys.stderr)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # Strava's token endpoint does not redirect; refusing redirects keeps the
+    # client secret in the request body from being replayed elsewhere.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def open_url(request, timeout=15):
+    return _OPENER.open(request, timeout=timeout)
+
+
+def ensure_private_dir(directory):
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    os.chmod(directory, 0o700)
+    if os.stat(directory).st_mode & 0o077:
+        raise OSError("could not make %s private to this user" % directory)
+
+
 # A token response is a few hundred bytes, or a couple of kilobytes with the
 # athlete summary. Capping the body before parsing keeps an oversized or
 # malformed response from being read into memory whole.
@@ -156,19 +227,19 @@ def exchange_code_for_tokens(client_id, client_secret, code):
         "grant_type": "authorization_code",
     }).encode("utf-8")
     request = urllib.request.Request(TOKEN_URL, data=body, method="POST")
-    with urllib.request.urlopen(request, timeout=15) as response:
+    with open_url(request) as response:
         return read_json_limited(response, MAX_TOKEN_RESPONSE_BYTES)
 
 
 def write_auth_file(state_dir, record):
-    os.makedirs(state_dir, exist_ok=True)
+    ensure_private_dir(state_dir)
     fd, tmp_path = tempfile.mkstemp(dir=state_dir, prefix=".auth-")
     try:
         os.chmod(tmp_path, 0o600)
         with os.fdopen(fd, "w") as handle:
             json.dump(record, handle)
         os.replace(tmp_path, os.path.join(state_dir, "auth.json"))
-    except Exception:
+    except BaseException:
         try:
             os.remove(tmp_path)
         except OSError:
@@ -177,7 +248,8 @@ def write_auth_file(state_dir, record):
 
 
 def open_browser(url):
-    print(url, file=sys.stderr)
+    # stdout, so that stderr carries only the error the widget shows.
+    print(url)
     try:
         import webbrowser
         webbrowser.open(url)
@@ -199,11 +271,10 @@ def read_client_secret():
         return ""
 
 
-def main():
-    args = parse_args()
+def connect(args):
     client_secret = read_client_secret()
     if not client_secret:
-        print("No Strava client secret was provided on stdin", file=sys.stderr)
+        report("No Strava client secret was provided on stdin")
         return 1
 
     state = secrets.token_urlsafe(24)
@@ -213,30 +284,29 @@ def main():
 
     code, error = run_oauth_listener(args.port, args.timeout, state)
     if error and error.startswith("port_busy"):
-        print("Port %d is already in use, so the Strava login could not be "
-              "received. Close whatever is using it, or pass --port."
-              % args.port, file=sys.stderr)
+        report("Port %d is already in use, so the Strava login could not be "
+               "received. Close whatever is using it, or pass --port." % args.port)
         return 1
     if error == "timeout":
-        print("No login within the time limit", file=sys.stderr)
+        report("No login within the time limit")
         return 1
     if error:
-        print("Strava denied the connection: %s" % error, file=sys.stderr)
+        report("Strava denied the connection: %s" % error)
         return 1
     if not code:
-        print("Did not receive a code back from Strava", file=sys.stderr)
+        report("Did not receive a code back from Strava")
         return 1
 
     try:
         tokens = exchange_code_for_tokens(args.client_id, client_secret, code)
     except urllib.error.HTTPError as err:
-        print("Could not fetch token from Strava: %s" % err, file=sys.stderr)
+        report("Could not fetch token from Strava: %s" % err)
         return 1
     except urllib.error.URLError as err:
-        print("Could not reach Strava: %s" % err, file=sys.stderr)
+        report("Could not reach Strava: %s" % err)
         return 1
     except ResponseTooLarge:
-        print("Strava sent an unexpectedly large response; nothing was saved", file=sys.stderr)
+        report("Strava sent an unexpectedly large response; nothing was saved")
         return 1
 
     record = {
@@ -248,10 +318,34 @@ def main():
         "athleteId": (tokens.get("athlete") or {}).get("id"),
         "connectedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    write_auth_file(args.state_dir, record)
+    with alarm_deferred():
+        write_auth_file(args.state_dir, record)
+        # Saved: stop the clock and drop an alarm that may already be
+        # pending, so it cannot fire after the credentials are in place.
+        signal.alarm(0)
+        if signal.SIGALRM in signal.sigpending():
+            signal.sigtimedwait({signal.SIGALRM}, 0)
     print("Connected to Strava")
     return 0
 
 
+def main():
+    args = parse_args()
+    previous_handler = signal.signal(signal.SIGALRM, _deadline_reached)
+    signal.alarm(args.timeout + EXCHANGE_DEADLINE_SEC)
+    try:
+        return connect(args)
+    except DeadlineExceeded:
+        report("Connecting to Strava took too long; nothing was saved")
+        return 1
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        report("strava-connect error: %s" % exc)
+        sys.exit(1)

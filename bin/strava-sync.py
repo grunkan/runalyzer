@@ -11,6 +11,7 @@ failure, so the widget can degrade gracefully.
 
 import json
 import os
+import signal
 import sys
 import tempfile
 import time
@@ -31,9 +32,66 @@ def state_dir():
     )
 
 
+# The whole sync must finish within this. A socket timeout only bounds each
+# read, so a server trickling bytes, or a slow DNS lookup, could otherwise keep
+# the process alive indefinitely.
+SYNC_DEADLINE_SEC = 90
+
+# Anything printed ends up buffered by the widget, so messages are capped here
+# rather than trimmed after the fact.
+MAX_MESSAGE_CHARS = 300
+
+
+class DeadlineExceeded(BaseException):
+    # BaseException so the broad "except Exception" handlers let it through
+    # to main(), which reports it once.
+    pass
+
+
+def _deadline_reached(signum, frame):
+    raise DeadlineExceeded("no result within %d seconds" % SYNC_DEADLINE_SEC)
+
+
+class alarm_deferred:
+    """Holds SIGALRM back while credentials are written, so a deadline can
+    never land between Strava rotating the refresh token and it being saved."""
+
+    def __enter__(self):
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+
+    def __exit__(self, *exc):
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
+        return False
+
+
+def report(message):
+    print(str(message)[:MAX_MESSAGE_CHARS], file=sys.stderr)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # Strava's API does not redirect. urllib would otherwise copy the
+    # Authorization header to whichever host a redirect names.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def open_url(request, timeout=15):
+    return _OPENER.open(request, timeout=timeout)
+
+
+def ensure_private_dir(directory):
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    os.chmod(directory, 0o700)
+    if os.stat(directory).st_mode & 0o077:
+        raise OSError("could not make %s private to this user" % directory)
+
+
 def atomic_write_json(path, record, mode=None):
     directory = os.path.dirname(path)
-    os.makedirs(directory, exist_ok=True)
+    ensure_private_dir(directory)
     fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".tmp-")
     try:
         if mode is not None:
@@ -41,7 +99,7 @@ def atomic_write_json(path, record, mode=None):
         with os.fdopen(fd, "w") as handle:
             json.dump(record, handle)
         os.replace(tmp_path, path)
-    except Exception:
+    except BaseException:
         try:
             os.remove(tmp_path)
         except OSError:
@@ -158,7 +216,7 @@ def refresh_access_token(client_id, client_secret, refresh_token):
         "grant_type": "refresh_token",
     }).encode("utf-8")
     request = urllib.request.Request(TOKEN_URL, data=body, method="POST")
-    with urllib.request.urlopen(request, timeout=15) as response:
+    with open_url(request) as response:
         return read_json_limited(response, MAX_TOKEN_RESPONSE_BYTES)
 
 
@@ -167,11 +225,12 @@ def refresh_or_expire(client_id, client_secret, refresh_token, auth, auth_path):
         tokens = refresh_access_token(client_id, client_secret, refresh_token)
     except urllib.error.HTTPError:
         return None
-    access_token = tokens.get("access_token")
-    auth["accessToken"] = access_token
-    auth["refreshToken"] = tokens.get("refresh_token")
-    auth["expiresAt"] = tokens.get("expires_at")
-    atomic_write_json(auth_path, auth, mode=0o600)
+    with alarm_deferred():
+        access_token = tokens.get("access_token")
+        auth["accessToken"] = access_token
+        auth["refreshToken"] = tokens.get("refresh_token")
+        auth["expiresAt"] = tokens.get("expires_at")
+        atomic_write_json(auth_path, auth, mode=0o600)
     return access_token
 
 
@@ -186,7 +245,7 @@ def fetch_activities_since(access_token, after_epoch, per_page=200):
             ACTIVITIES_URL + "?" + query,
             headers={"Authorization": "Bearer " + access_token},
         )
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with open_url(request) as response:
             batch = read_json_limited(response, MAX_ACTIVITIES_RESPONSE_BYTES)
         all_activities.extend(batch)
         if len(batch) < per_page:
@@ -225,7 +284,7 @@ def map_activity(activity):
     }
 
 
-def main():
+def sync():
     dir_path = state_dir()
     auth_path = os.path.join(dir_path, "auth.json")
     status_path = os.path.join(dir_path, "status.json")
@@ -289,7 +348,7 @@ def main():
             write_keep_previous(
                 status_path, "fetch_failed", "Strava sent an unexpectedly large response.", previous_state,
             )
-            print("strava-sync: %s" % err, file=sys.stderr)
+            report("strava-sync: %s" % err)
             return 0
 
         runs =[a for a in activities if a.get("type") == "Run"]
@@ -301,9 +360,32 @@ def main():
         write_keep_previous(
             status_path, "fetch_failed", "Couldn't fetch activities right now.", previous_state,
         )
-        print("strava-sync error: %s" % exc, file=sys.stderr)
+        report("strava-sync error: %s" % exc)
         return 0
 
 
+def main():
+    status_path = os.path.join(state_dir(), "status.json")
+    previous_handler = signal.signal(signal.SIGALRM, _deadline_reached)
+    signal.alarm(SYNC_DEADLINE_SEC)
+    try:
+        return sync()
+    except DeadlineExceeded as err:
+        signal.alarm(0)
+        write_keep_previous(
+            status_path, "fetch_failed", "Strava took too long to respond.",
+            load_previous_state(status_path),
+        )
+        report("strava-sync: %s" % err)
+        return 0
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        report("strava-sync error: %s" % exc)
+        sys.exit(1)

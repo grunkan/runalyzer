@@ -1,10 +1,13 @@
 import contextlib
+import http.server
 import importlib.util
 import io
 import json
 import os
 import tempfile
+import threading
 import time
+import urllib.error
 import unittest
 from datetime import date, datetime, timedelta
 from unittest import mock
@@ -196,14 +199,14 @@ class ResponseLimitTest(unittest.TestCase):
 
     def test_an_endless_activities_page_is_rejected_with_bounded_memory(self):
         endless = EndlessResponse()
-        with mock.patch("urllib.request.urlopen", return_value=endless):
+        with mock.patch.object(sync, "open_url", return_value=endless):
             with self.assertRaises(sync.ResponseTooLarge):
                 sync.fetch_activities_since("token", 0)
         self.assertLessEqual(endless.bytes_served, sync.MAX_ACTIVITIES_RESPONSE_BYTES + 1)
 
     def test_an_endless_token_response_is_rejected_with_bounded_memory(self):
         endless = EndlessResponse()
-        with mock.patch("urllib.request.urlopen", return_value=endless):
+        with mock.patch.object(sync, "open_url", return_value=endless):
             with self.assertRaises(sync.ResponseTooLarge):
                 sync.refresh_access_token("id", "secret", "refresh")
         self.assertLessEqual(endless.bytes_served, sync.MAX_TOKEN_RESPONSE_BYTES + 1)
@@ -234,7 +237,7 @@ class OversizedResponseSyncTest(unittest.TestCase):
             self.auth_before = handle.read()
 
         with mock.patch.dict(os.environ, {"XDG_STATE_HOME": self.tmp.name}), \
-                mock.patch("urllib.request.urlopen", return_value=EndlessResponse()), \
+                mock.patch.object(sync, "open_url", return_value=EndlessResponse()), \
                 contextlib.redirect_stderr(io.StringIO()):
             result = sync.main()
 
@@ -257,6 +260,142 @@ class OversizedResponseSyncTest(unittest.TestCase):
         self.assertEqual(self.run_sync(expires_at=0), 0)
         self.assertEqual(self.status["error"], "fetch_failed")
         self.assertEqual(self.auth_after, self.auth_before)
+
+
+def serve(handler_class):
+    """Starts a throwaway local HTTP server and returns its base URL."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler_class)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, "http://127.0.0.1:%d" % server.server_address[1]
+
+
+class Trickle(http.server.BaseHTTPRequestHandler):
+    """Sends a valid body one byte every half second: each pause is well
+    inside a socket timeout, so only a total deadline stops it."""
+
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        try:
+            for byte in b"[" + b" " * 400 + b"]":
+                self.wfile.write(bytes([byte]))
+                self.wfile.flush()
+                time.sleep(0.5)
+        except OSError:
+            pass
+
+    do_POST = do_GET
+
+    def log_message(self, *args):
+        pass
+
+
+class DeadlineTest(unittest.TestCase):
+    def setUp(self):
+        self.server, self.base = serve(Trickle)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = os.path.join(self.tmp.name, "omarchy", "strava")
+        os.makedirs(self.state)
+        self.status_path = os.path.join(self.state, "status.json")
+        self.auth_path = os.path.join(self.state, "auth.json")
+
+    def write_auth(self, expires_at):
+        with open(self.auth_path, "w") as handle:
+            json.dump({"clientId": "id", "clientSecret": "secret", "accessToken": "token",
+                       "refreshToken": "refresh", "expiresAt": expires_at}, handle)
+        with open(self.auth_path, "rb") as handle:
+            return handle.read()
+
+    def run_sync(self):
+        started = time.monotonic()
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": self.tmp.name}), \
+                mock.patch.object(sync, "SYNC_DEADLINE_SEC", 2), \
+                mock.patch.object(sync, "ACTIVITIES_URL", self.base + "/activities"), \
+                mock.patch.object(sync, "TOKEN_URL", self.base + "/token"), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(sync.main(), 0)
+        with open(self.status_path) as handle:
+            return time.monotonic() - started, json.load(handle)
+
+    def test_a_trickling_response_is_cut_off_at_the_deadline(self):
+        # The same trickle ran for 24 s against a 15 s socket timeout before
+        # the deadline existed; a 400-byte body here would take over 200 s.
+        self.write_auth(time.time() + 3600)
+        elapsed, status = self.run_sync()
+        self.assertLess(elapsed, 5)
+        self.assertEqual(status["error"], "fetch_failed")
+        self.assertIn("too long", status["authHelpText"])
+
+    def test_a_deadline_during_a_token_refresh_leaves_credentials_untouched(self):
+        before = self.write_auth(0)
+        elapsed, status = self.run_sync()
+        self.assertLess(elapsed, 5)
+        with open(self.auth_path, "rb") as handle:
+            self.assertEqual(handle.read(), before)
+        self.assertFalse([f for f in os.listdir(self.state) if f.startswith(".tmp-")])
+
+
+class RedirectTest(unittest.TestCase):
+    def test_a_redirect_is_refused_and_never_sees_the_token(self):
+        seen = []
+
+        class Target(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"[]")
+
+            def log_message(self, *args):
+                pass
+
+        target, target_base = serve(Target)
+        self.addCleanup(target.server_close)
+        self.addCleanup(target.shutdown)
+
+        class Redirect(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                # "localhost" rather than the IP: a different host name.
+                self.send_response(302)
+                self.send_header("Location", target_base.replace("127.0.0.1", "localhost") + "/x")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        redirector, redirect_base = serve(Redirect)
+        self.addCleanup(redirector.server_close)
+        self.addCleanup(redirector.shutdown)
+
+        with mock.patch.object(sync, "ACTIVITIES_URL", redirect_base + "/activities"):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                sync.fetch_activities_since("SECRET-TOKEN", 0)
+        caught.exception.close()
+        self.assertEqual(caught.exception.code, 302)
+        self.assertEqual(seen, [])
+
+
+class PrivateStateTest(unittest.TestCase):
+    def test_an_existing_state_directory_is_made_private(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = os.path.join(tmp, "strava")
+            os.makedirs(state, mode=0o755)
+            os.chmod(state, 0o755)
+            sync.write_status(os.path.join(state, "status.json"), True, None, "", [], "")
+            self.assertEqual(os.stat(state).st_mode & 0o777, 0o700)
+            self.assertEqual(os.stat(os.path.join(state, "status.json")).st_mode & 0o777, 0o600)
+
+
+class ReportTest(unittest.TestCase):
+    def test_messages_are_capped_before_printing(self):
+        captured = io.StringIO()
+        with contextlib.redirect_stderr(captured):
+            sync.report("x" * 5000)
+        self.assertEqual(len(captured.getvalue().rstrip("\n")), sync.MAX_MESSAGE_CHARS)
 
 
 if __name__ == "__main__":
