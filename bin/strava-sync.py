@@ -129,6 +129,27 @@ def write_auth_expired(status_path):
     )
 
 
+# The page and item limits bound how much we ask for, not how much a server
+# sends back, so every response body is capped before it is parsed. A full
+# page of 200 activities measures about 440 KB and a token response a few
+# hundred bytes; the caps leave ample headroom above both.
+MAX_ACTIVITIES_RESPONSE_BYTES = 4 * 1024 * 1024
+MAX_TOKEN_RESPONSE_BYTES = 64 * 1024
+
+
+class ResponseTooLarge(Exception):
+    pass
+
+
+def read_json_limited(response, limit):
+    # Reading one byte past the limit is enough to tell an oversized body
+    # apart from one that exactly fits, without ever holding more than that.
+    payload = response.read(limit + 1)
+    if len(payload) > limit:
+        raise ResponseTooLarge("response body exceeds %d bytes" % limit)
+    return json.loads(payload)
+
+
 def refresh_access_token(client_id, client_secret, refresh_token):
     body = urllib.parse.urlencode({
         "client_id": client_id,
@@ -138,7 +159,7 @@ def refresh_access_token(client_id, client_secret, refresh_token):
     }).encode("utf-8")
     request = urllib.request.Request(TOKEN_URL, data=body, method="POST")
     with urllib.request.urlopen(request, timeout=15) as response:
-        return json.load(response)
+        return read_json_limited(response, MAX_TOKEN_RESPONSE_BYTES)
 
 
 def refresh_or_expire(client_id, client_secret, refresh_token, auth, auth_path):
@@ -166,7 +187,7 @@ def fetch_activities_since(access_token, after_epoch, per_page=200):
             headers={"Authorization": "Bearer " + access_token},
         )
         with urllib.request.urlopen(request, timeout=15) as response:
-            batch = json.load(response)
+            batch = read_json_limited(response, MAX_ACTIVITIES_RESPONSE_BYTES)
         all_activities.extend(batch)
         if len(batch) < per_page:
             break
@@ -264,8 +285,14 @@ def main():
                 status_path, "fetch_failed", "Couldn't fetch activities right now.", previous_state,
             )
             return 0
+        except ResponseTooLarge as err:
+            write_keep_previous(
+                status_path, "fetch_failed", "Strava sent an unexpectedly large response.", previous_state,
+            )
+            print("strava-sync: %s" % err, file=sys.stderr)
+            return 0
 
-        runs = [a for a in activities if a.get("type") == "Run"]
+        runs =[a for a in activities if a.get("type") == "Run"]
         runs.sort(key=lambda a: a.get("start_date_local") or "", reverse=True)
 
         write_status(status_path, True, None, "", [map_activity(a) for a in runs], now_iso())

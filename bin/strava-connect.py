@@ -131,6 +131,23 @@ def run_oauth_listener(port, timeout, expected_state):
     return result.code, result.error
 
 
+# A token response is a few hundred bytes, or a couple of kilobytes with the
+# athlete summary. Capping the body before parsing keeps an oversized or
+# malformed response from being read into memory whole.
+MAX_TOKEN_RESPONSE_BYTES = 64 * 1024
+
+
+class ResponseTooLarge(Exception):
+    pass
+
+
+def read_json_limited(response, limit):
+    payload = response.read(limit + 1)
+    if len(payload) > limit:
+        raise ResponseTooLarge("response body exceeds %d bytes" % limit)
+    return json.loads(payload)
+
+
 def exchange_code_for_tokens(client_id, client_secret, code):
     body = urllib.parse.urlencode({
         "client_id": client_id,
@@ -140,7 +157,7 @@ def exchange_code_for_tokens(client_id, client_secret, code):
     }).encode("utf-8")
     request = urllib.request.Request(TOKEN_URL, data=body, method="POST")
     with urllib.request.urlopen(request, timeout=15) as response:
-        return json.load(response)
+        return read_json_limited(response, MAX_TOKEN_RESPONSE_BYTES)
 
 
 def write_auth_file(state_dir, record):
@@ -217,6 +234,9 @@ def main():
         return 1
     except urllib.error.URLError as err:
         print("Could not reach Strava: %s" % err, file=sys.stderr)
+        return 1
+    except ResponseTooLarge:
+        print("Strava sent an unexpectedly large response; nothing was saved", file=sys.stderr)
         return 1
 
     record = {
